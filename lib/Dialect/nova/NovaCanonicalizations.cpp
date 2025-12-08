@@ -53,9 +53,10 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
           lhsType.getRank(), resultType.getRank());
       
       auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      
+      auto restype=resultType.clone(lhsType.getElementType());
+
       newLhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), resultType, newLhs, broadcastDimsAttr).getResult();
+          op.getLoc(), restype, newLhs, broadcastDimsAttr).getResult();
       changed = true;
     }
 
@@ -71,9 +72,11 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
           rhsType.getRank(), resultType.getRank());
       
       auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      
+      //here instead of creating the op with result type we should 
+      //make thedata type of rhs to rhs itself
+      auto restype=resultType.clone(rhsType.getElementType());
       newRhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), resultType, newRhs, broadcastDimsAttr).getResult();
+          op.getLoc(), restype, newRhs, broadcastDimsAttr).getResult();
       changed = true;
     }
 

@@ -331,7 +331,7 @@ static LogicalResult verifyBinaryOp(OpType op)
   {
     return op.emitOpError("operands and result must be tensor types");
   }
-  //if one is complex another must be complex of same element type
+ // if one is complex another must be complex of same element type
   if(isa<ComplexType>(llvm::dyn_cast<TensorType>(lhsType).getElementType()) ||
      isa<ComplexType>(llvm::dyn_cast<TensorType>(rhsType).getElementType())){
        auto clhs = dyn_cast<ComplexType>(llvm::dyn_cast<TensorType>(lhsType).getElementType());
@@ -1491,13 +1491,14 @@ LogicalResult ReduceOp::verify()
     auto operand = getOperand();                          \
     Type operandType = operand.getType();                 \
                                                           \
-    if (auto shapedType = dyn_cast<ShapedType>(operandType)) { \                     
+    if (auto shapedType = dyn_cast<ShapedType>(operandType)) \
+    { \                     
         Type elementType = shapedType.getElementType();   \
         if (isa<ComplexType>(elementType)) {              \
             return emitOpError("does not support complex number operands, but found type: ") \
                    << elementType;                        \
         }                                                 \
-    }                                                     \
+    }                                               \
     return success();                                     \
   }
 //appling no complex condition

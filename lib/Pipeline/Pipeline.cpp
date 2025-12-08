@@ -61,7 +61,8 @@ void mlir::nova::createNovaPipelines(OpPassManager &pm) {
 //  pm.addPass(mlir::createTensorBufferizePass());  
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
-
+//tosa to linalg named ops
+pm.addNestedPass<func::FuncOp>(mlir::tosa::createTosaToLinalgNamed()); 
   //tosa to linalg 
 pm.addNestedPass<func::FuncOp>(mlir::tosa::createTosaToLinalg());  
 //tosa to tensors

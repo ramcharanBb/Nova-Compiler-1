@@ -24,22 +24,33 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
       return failure();
 
     // Get the input to the add
-    Value addInput = addOp.getDpsInputOperand(0)->get();
+    Value addInput1 = addOp.getDpsInputOperand(0)->get();
+    Value addInput2 = addOp.getDpsInputOperand(1)->get();
 
     // Check if input comes from a matmul
-    auto matmulOp = addInput.getDefiningOp<GenericOp>();
-    if (!matmulOp || !isMatmul(matmulOp))
-      return failure();
-
+    GenericOp matmulOp;
+    auto matmulOp1 = addInput1.getDefiningOp<GenericOp>();
+    auto matmulOp2 = addInput2.getDefiningOp<GenericOp>();
+    Value bias;
+// Case 1: only input1 is matmul
+if (matmulOp1 && isMatmul(matmulOp1) &&
+    !(matmulOp2 && isMatmul(matmulOp2))) {
+  matmulOp = matmulOp1;
+  bias = addInput2;
+}
+// Case 2: only input2 is matmul
+else if (matmulOp2 && isMatmul(matmulOp2) &&
+         !(matmulOp1 && isMatmul(matmulOp1))) {
+  matmulOp = matmulOp2;
+  bias = addInput1;
+} else {
+  return failure();
+}
     // Check that matmul has only one use (this add)
-    if (!matmulOp->hasOneUse())
+    if (!matmulOp || !matmulOp->hasOneUse()) 
       return failure();
-    
     llvm::errs() << "Found fusible matmul + add pattern!\n";
-
-    // Get the bias input (the second input to the add)
-    Value bias = addOp.getDpsInputOperand(1)->get();
-
+      
     // Get matmul inputs
     Value A = matmulOp.getDpsInputOperand(0)->get();
     Value B = matmulOp.getDpsInputOperand(1)->get();
@@ -52,24 +63,24 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
 
     // The result type is the type of the Add operation
     auto resultType = cast<RankedTensorType>(addOp.getResult(0).getType()); 
+    SmallVector<AffineMap> matmulMaps = 
+        llvm::to_vector<4>(matmulOp.getIndexingMapsArray());
+    SmallVector<utils::IteratorType> iteratorTypes = 
+        llvm::to_vector<4>(matmulOp.getIteratorTypesArray());
+
+
     SmallVector<AffineMap> indexingMaps;
-    SmallVector<utils::IteratorType> iteratorTypes;
 
-    // Build affine maps for: (i,j,k) -> A[i,k], B[k,j], C[i,j] (Output)
-    auto context = rewriter.getContext();
+    // We only need the first two maps (A, B access) and the third map (Output C access)
+    // from the original matmul operation.
+    if (matmulMaps.size() != 3) {
+      // Basic validation check in case the matmul definition is non-standard
+      return failure(); 
+    }
     
-    // Only 3 indexing maps (A, B, C/Output)
-    indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(2)}, context)); // A[i,k] - args[0]
-    indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(2), rewriter.getAffineDimExpr(1)}, context)); // B[k,j] - args[1]
-    indexingMaps.push_back(AffineMap::get(3, 0,
-        {rewriter.getAffineDimExpr(0), rewriter.getAffineDimExpr(1)}, context)); // C[i,j] (output) - args[2]
-
-    // Iterator types: parallel(i), parallel(j), reduction(k)
-    iteratorTypes = {utils::IteratorType::parallel,
-                     utils::IteratorType::parallel,
-                     utils::IteratorType::reduction};
+    indexingMaps.push_back(matmulMaps[0]); // A Access Map
+    indexingMaps.push_back(matmulMaps[1]); // B Access Map
+    indexingMaps.push_back(matmulMaps[2]);
 
     // Create the fused generic op
     auto fusedOp = rewriter.create<GenericOp>(
@@ -84,8 +95,14 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
           
           // Loop body is ONLY matmul accumulation (C = C + A * B)
           Value mul = b.create<arith::MulFOp>(loc, args[0], args[1]);
-          Value partialSum = b.create<arith::AddFOp>(loc, args[2], mul);
-          b.create<linalg::YieldOp>(loc, partialSum);
+          
+          //if the input one is matmul output
+          if(matmulOp)
+            mul = b.create<arith::AddFOp>(loc, args[2], mul);
+          else
+            //if the input two is matmul output
+            mul= b.create<arith::AddFOp>(loc, args[1], mul);
+          b.create<linalg::YieldOp>(loc, mul);
         }
     );
 
@@ -101,6 +118,9 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
 
 private:
   bool isElementwise(GenericOp op) const {
+    //check if the operatiopn has two inputs
+    if (op.getNumDpsInputs() != 2)
+      return false;
     // Check if all loops are parallel
     return llvm::all_of(op.getIteratorTypesArray(), [](utils::IteratorType it) {
       return it == utils::IteratorType::parallel;
@@ -110,12 +130,22 @@ private:
   bool isMatmul(GenericOp op) const {
     auto iterators = op.getIteratorTypesArray();
     // Matmul has 2 parallel + 1 reduction dimension
-    if (iterators.size() != 3)
+    if (iterators.size() < 3)
       return false;
 
-    return iterators[0] == utils::IteratorType::parallel &&
-           iterators[1] == utils::IteratorType::parallel &&
-           iterators[2] == utils::IteratorType::reduction;
+    // We need exactly one reduction loop
+    int reductionCount = 0;
+    for (auto it : iterators) {
+      if (it == utils::IteratorType::reduction) {
+        reductionCount++;
+      }
+    }
+    if (reductionCount != 1) return false;
+
+    // Ensure all other loops are parallel
+    return llvm::all_of(iterators, [](utils::IteratorType it) {
+      return it == utils::IteratorType::parallel || it == utils::IteratorType::reduction;
+    });
   }
 };
 

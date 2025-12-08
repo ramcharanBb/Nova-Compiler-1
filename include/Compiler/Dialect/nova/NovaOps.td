@@ -9,6 +9,9 @@ include "mlir/IR/BuiltinTypeInterfaces.td"
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/BuiltinTypes.td" 
+//traits
+def NoComplexOperands : NativeOpTrait<"NoComplexOperands">;
+
 // data types
 def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
          BuildableType<"$_builder.getIntegerType(4)">;
