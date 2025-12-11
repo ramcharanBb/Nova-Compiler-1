@@ -14,13 +14,11 @@ public:
   static LogicalResult verifyTrait(Operation *op) {
     for (Value operand : op->getOperands()) {
       Type type = operand.getType();
-      
       // Check if the type itself is complex
       if (isa<ComplexType>(type)) {
         return op->emitOpError("From Trait:operand cannot have complex type");
       }
-      
-      // Check if it's a shaped type (tensor/vector/memref) with complex elements
+      // Check if it's a tensor with complex elements
       if (auto shapedType = dyn_cast<ShapedType>(type)) {
         if (isa<ComplexType>(shapedType.getElementType())) {
           return op->emitOpError("From Trait:operand cannot have complex element type");
@@ -31,7 +29,7 @@ public:
   }
 };
 
-} // namespace OpTrait
-} // namespace mlir
+}
+} 
 
-#endif // NOVA_NOVATRAITS_H
+#endif

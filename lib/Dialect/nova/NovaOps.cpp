@@ -1485,46 +1485,22 @@ LogicalResult ReduceOp::verify()
   return success();
 }
 //------------------------operand not support complex number check---------------------------------
-#define VERIFY_UNARY_OP_NO_COMPLEX(Op)                    \
-  LogicalResult Op::verify()                              \
-  {                                                       \
-    auto operand = getOperand();                          \
-    Type operandType = operand.getType();                 \
-                                                          \
-    if (auto shapedType = dyn_cast<ShapedType>(operandType)) \
-    { \                     
-        Type elementType = shapedType.getElementType();   \
-        if (isa<ComplexType>(elementType)) {              \
-            return emitOpError("does not support complex number operands, but found type: ") \
-                   << elementType;                        \
-        }                                                 \
-    }                                               \
-    return success();                                     \
-  }
-//appling no complex condition
-VERIFY_UNARY_OP_NO_COMPLEX(Exp2Op);
-VERIFY_UNARY_OP_NO_COMPLEX(Log2Op);
-VERIFY_UNARY_OP_NO_COMPLEX(Log10Op);
-VERIFY_UNARY_OP_NO_COMPLEX(SinhOp);
-VERIFY_UNARY_OP_NO_COMPLEX(CoshOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AsinOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AcosOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AtanOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AsinhOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AcoshOp);
-VERIFY_UNARY_OP_NO_COMPLEX(AtanhOp);
-VERIFY_UNARY_OP_NO_COMPLEX(GeluOp);
-VERIFY_UNARY_OP_NO_COMPLEX(SoftmaxOp);
-VERIFY_UNARY_OP_NO_COMPLEX(ReciprocalOp);
-VERIFY_UNARY_OP_NO_COMPLEX(SquareOp);
-VERIFY_UNARY_OP_NO_COMPLEX(ReluOp);
-VERIFY_UNARY_OP_NO_COMPLEX(SigmoidOp);
-
-
-
-
-
-
+// #define VERIFY_UNARY_OP_NO_COMPLEX(Op)                    \
+//   LogicalResult Op::verify()                              \
+//   {                                                       \
+//     auto operand = getOperand();                          \
+//     Type operandType = operand.getType();                 \
+//                                                           \
+//     if (auto shapedType = dyn_cast<ShapedType>(operandType)) \
+//     { \                     
+//         Type elementType = shapedType.getElementType();   \
+//         if (isa<ComplexType>(elementType)) {              \
+//             return emitOpError("does not support complex number operands, but found type: ") \
+//                    << elementType;                        \
+//         }                                                 \
+//     }                                               \
+//     return success();                                     \
+//   }
 
 
 //------------------------unary casting infer return types---------------------------------

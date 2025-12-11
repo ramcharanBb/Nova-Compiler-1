@@ -853,7 +853,7 @@ namespace mlir
         
         // Update types after broadcasting
         auto broadcastLhsType = cast<RankedTensorType>(broadcastLhs.getType());
-        auto broadcastRhsType = cast<RankedTensorType>(broadcastRhs.getType());
+        //auto broadcastRhsType = cast<RankedTensorType>(broadcastRhs.getType());
 
         // Calculate the flattened batch size
         int64_t N = 1;
