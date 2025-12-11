@@ -1,28 +1,30 @@
-module {
- func.func @main(%arg0: tensor<3x3xi32>,%arg1:tensor<3x3xf32>,%arg3:tensor<1x3xi32> ) -> tensor<3x3xf32> {
-  %0 = nova.max %arg0,%arg1: tensor<3x3xi32>,tensor<3x3xf32>
-  return %0 :tensor<3x3xf32>
-  }
-}
-
-////////////
-~/…/mlir-compiler $ build/tools/nova-opt/nova-opt test/test_fusion.mlir --linalg-generalize-named-ops --fuse-matmul-bias --one-shot-bufferize="bufferize-function-boundaries"
-
-=== Running FuseMatmulBias Pass ===
-Found fusible matmul + add pattern (with 0 reshapes)!
-Successfully fused matmul + bias into single operation (thru reshapes)!
-=== FuseMatmulBias Pass Complete ===
-#map = affine_map<(d0, d1, d2) -> (d0, d2)>
-#map1 = affine_map<(d0, d1, d2) -> (d2, d1)>
-#map2 = affine_map<(d0, d1, d2) -> (d0, d1)>
-module {
-  func.func @matmul_with_bias(%arg0: memref<4096x4096xf32, strided<[?, ?], offset: ?>>, %arg1: memref<4096x4096xf32, strided<[?, ?], offset: ?>>, %arg2: memref<4096x4096xf32, strided<[?, ?], offset: ?>>) -> memref<4096x4096xf32, strided<[?, ?], offset: ?>> {
-    linalg.generic {indexing_maps = [#map, #map1, #map2], iterator_types = ["parallel", "parallel", "reduction"]} ins(%arg0, %arg1 : memref<4096x4096xf32, strided<[?, ?], offset: ?>>, memref<4096x4096xf32, strided<[?, ?], offset: ?>>) outs(%arg2 : memref<4096x4096xf32, strided<[?, ?], offset: ?>>) {
-    ^bb0(%in: f32, %in_0: f32, %out: f32):
-      %0 = arith.mulf %in, %in_0 : f32
-      %1 = arith.addf %out, %0 : f32
-      linalg.yield %1 : f32
-    }
-    return %arg2 : memref<4096x4096xf32, strided<[?, ?], offset: ?>>
-  }
-}
+output = rewriter.create<GenericOp>(
+            loc,
+            newType,
+            ValueRange{inputBiasValue},
+            ValueRange{initTensor},
+            maps,
+            iterators,
+            [&](OpBuilder &b, Location loc, ValueRange args) {
+              Value castedValue;
+              // Assuming you want an extension if the target bitwidth is larger
+              if (newElementType.getIntOrFloatBitWidth() > biasType.getElementType().getIntOrFloatBitWidth()) {
+                  // Choose signed or unsigned extension as appropriate for your use case
+                  // This example uses Signed Integer Extension
+                  castedValue = b.create<arith::ExtSIOp>(loc, newElementType, args[0]);
+              } else if (newElementType.getIntOrFloatBitWidth() < biasType.getElementType().getIntOrFloatBitWidth()){
+                  // Handle truncation if the target bitwidth is smaller
+                  castedValue = b.create<arith::TruncIOp>(loc, newElementType, args[0]);
+              } else {
+                  // Bitwidths are same, perhaps just need a bitcast for signedness or just use the value directly
+                  // The simple case: just yield the input if types are identical in width
+                  castedValue = args[0]; 
+              }
+              
+              b.create<linalg::YieldOp>(loc, castedValue);
+            }
+          ).getResult(0); 
+        }
+      }
+      
+    Value output = transformedBias;

@@ -112,8 +112,8 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     // Get matmul inputs
     Value A = matmulOp.getDpsInputOperand(0)->get();
     Value B = matmulOp.getDpsInputOperand(1)->get();
-    Value adda=addOp.getDpsInputOperand(0)->get();
-    Value addb=addOp.getDpsInputOperand(1)->get();
+    // Value adda=addOp.getDpsInputOperand(0)->get();
+    // Value addb=addOp.getDpsInputOperand(1)->get();
     // The bias currently matches the 'add' output shape (which is reshaped from matmul)
     // We need to apply the INVERSE reshapes to the bias to make it match the matmul output.
     Value transformedBias = bias;
@@ -130,6 +130,17 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     // If we have f16 bias and f32 matmul result, we must cast the bias to f32.
     auto matmulType = cast<RankedTensorType>(matmulOp.getResult(0).getType());
     auto biasType = cast<RankedTensorType>(transformedBias.getType());
+    auto addResultType = cast<RankedTensorType>(addOp.getResult(0).getType());
+    Type targetElementType = addResultType.getElementType();
+
+    ValueRange operands = addOp.getOperands();
+    auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
+    auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+    Type biasLhsElementType = lhstensor.getElementType();
+    Type biasRhsElementType = rhstensor.getElementType();
+    unsigned biasBitwidth1 = biasLhsElementType.getIntOrFloatBitWidth();
+    unsigned biasBitwidth2 = biasRhsElementType.getIntOrFloatBitWidth();
+
 
     Value output = transformedBias;
 
@@ -138,7 +149,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
         // We use a linalg.generic op to perform the cast because arith.extf on tensors
         // is not supported by one-shot-bufferize.
         
-        auto newType = RankedTensorType::get(biasType.getShape(), matmulType.getElementType());
+        auto newType = RankedTensorType::get(biasType.getShape(), targetElementType);
         Value initTensor = rewriter.create<tensor::EmptyOp>(loc, newType.getShape(), newType.getElementType());
         
         SmallVector<AffineMap> maps = {
@@ -149,39 +160,52 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
         
         SmallVector<utils::IteratorType> iterators(biasType.getRank(), utils::IteratorType::parallel);
         
+
         output = rewriter.create<GenericOp>(
             loc,
             newType,
-            ValueRange{addInput2},
+            ValueRange{transformedBias},
             ValueRange{initTensor},
             maps,
             iterators,
             [&](OpBuilder &b, Location loc, ValueRange args) {
-               //get the body of generic without add op
-          Block *addBody = addOp.getBody();
-          
-           IRMapping mapping;
-          mapping.map(addBody->getArgument(0), args[0]);
-          mapping.map(addBody->getArgument(1), args[1]);
-           //mapping.map(addBody->getArgument(2), args[2]);
-          Value castedValue = args[0];
-          for (Operation &op : addBody->getOperations()) {
-            //if it is add op skip
-            if(isa<arith::AddFOp>(op))
-              continue;
-            if(isa<arith::AddIOp>(op))
-              continue;
-            if (isa<linalg::YieldOp>(op))
-              continue;
-            llvm::errs() << "Cloning op in cast generic: " << op << "\n";
-            Operation *clonedOp=b.clone(op, mapping);
-             if (clonedOp->getNumResults() > 0) {
-                castedValue = clonedOp->getResult(0);
-            }
-         }
-  // Value addValue =
-  //     mapping.lookup(addBody->getTerminator()->getOperand(0));
-  b.create<linalg::YieldOp>(loc, castedValue);
+                Value inVal = args[0];
+                Type srcType = inVal.getType();
+                Type dstType = targetElementType;
+                Value casted = inVal;
+
+                if (srcType != dstType) {
+                    if (isa<FloatType>(srcType) && isa<FloatType>(dstType)) {
+                        // Float -> Float: Extend or Truncate
+                        if (srcType.getIntOrFloatBitWidth() < dstType.getIntOrFloatBitWidth())
+                             casted = b.create<arith::ExtFOp>(loc, dstType, inVal);
+                        else if (srcType.getIntOrFloatBitWidth() > dstType.getIntOrFloatBitWidth())
+                             casted = b.create<arith::TruncFOp>(loc, dstType, inVal);
+                    } else if (isa<IntegerType>(srcType) && isa<FloatType>(dstType)) {
+                        // Integer -> Float: Bitcast logic as seen in NovaToLinalg
+                        unsigned srcWidth = srcType.getIntOrFloatBitWidth();
+                        unsigned dstWidth = dstType.getIntOrFloatBitWidth();
+
+                        if (srcWidth == dstWidth) {
+                            casted = b.create<arith::BitcastOp>(loc, dstType, inVal);
+                        } else if (srcWidth < dstWidth) {
+                            // Extend Int then Bitcast
+                            Type interIntType = b.getIntegerType(dstWidth);
+                            casted = b.create<arith::ExtSIOp>(loc, interIntType, inVal);
+                            casted = b.create<arith::BitcastOp>(loc, dstType, casted);
+                        } else {
+                            // Truncate Int then Bitcast (unlikely but possible)
+                            Type interIntType = b.getIntegerType(dstWidth);
+                            casted = b.create<arith::TruncIOp>(loc, interIntType, inVal);
+                            casted = b.create<arith::BitcastOp>(loc, dstType, casted);
+                        }
+                    } else {
+                         // Fallback for other cases (e.g. Int->Int), just try generic cast or error?
+                         // For now, assume ExtF as fallback was the previous behavior, but let's default to Bitcast if widths match?
+                         // Let's stick strictly to what we've seen: Int/Float mixes.
+                    }
+                }
+                b.create<linalg::YieldOp>(loc, casted);
             }
         ).getResult(0);
     }
@@ -192,7 +216,10 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     if (outputTensorType.getShape() != matmulType.getShape()) {
        if (activeReshapes.empty()) {
            // If no reshapes, we can reuse the AddOp's maps to broadcast the bias.
-           Value initTensor = rewriter.create<tensor::EmptyOp>(loc, matmulType.getShape(), matmulType.getElementType());
+           auto fusedShape = matmulType.getShape();
+           auto fusedType = RankedTensorType::get(fusedShape, targetElementType);
+           
+           Value initTensor = rewriter.create<tensor::EmptyOp>(loc, fusedShape, targetElementType);
            
            // Determine which input of AddOp was the bias
            int biasIdx = (bias == addInput2) ? 1 : 0;
@@ -206,7 +233,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
            
            auto broadcastOp = rewriter.create<GenericOp>(
                loc, 
-               matmulType, // Result type
+               fusedType, // Result type
                ValueRange{output}, // Input (bias)
                ValueRange{initTensor}, // Output (init)
                maps, 
@@ -229,6 +256,8 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
 
     SmallVector<AffineMap> indexingMaps;
 
+    // We only need the first two maps (A, B access) and the third map (Output C access)
+    // from the original matmul operation.
     if (matmulMaps.size() != 3) {
       // Basic validation check in case the matmul definition is non-standard
       return failure(); 
@@ -238,10 +267,12 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
     indexingMaps.push_back(matmulMaps[1]); 
     indexingMaps.push_back(matmulMaps[2]);
 
+    auto fusedResultType = RankedTensorType::get(matmulType.getShape(), targetElementType);
+
     // Create the fused generic op
     auto fusedOp = rewriter.create<GenericOp>(
         loc,
-        matmulOp.getResult(0).getType(), 
+        fusedResultType, 
         ValueRange{A, B},
         ValueRange{output}, 
         indexingMaps,
@@ -257,19 +288,52 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
           mapping.map(matmulBody->getArgument(0), args[0]);
           mapping.map(matmulBody->getArgument(1), args[1]);
           mapping.map(matmulBody->getArgument(2), args[2]);
-          
   // ---------------------------------------------------------
   // 1. Clone MATMUL BODY
   // ---------------------------------------------------------
   for (Operation &op : matmulBody->getOperations()) {
     if (isa<linalg::YieldOp>(op))
       continue;
+      
+    if (auto addF = dyn_cast<arith::AddFOp>(op)) {
+        // Handle potential type mismatch (e.g. f32 product + f64 accumulator)
+        Value lhs = mapping.lookup(op.getOperand(0));
+        Value rhs = mapping.lookup(op.getOperand(1));
+        Type lhsType = lhs.getType();
+        Type rhsType = rhs.getType();
+        
+        if (lhsType != rhsType) {
+             // Cast operands to match. We assume we want to promote to the larger floating point type
+             // which should match our targetElementType (accumulator).
+             Type joinType = (lhsType.getIntOrFloatBitWidth() > rhsType.getIntOrFloatBitWidth()) ? lhsType : rhsType;
+             
+             Value newLhs = lhs;
+             Value newRhs = rhs;
+             if (lhsType != joinType) newLhs = b.create<arith::ExtFOp>(loc, joinType, lhs);
+             if (rhsType != joinType) newRhs = b.create<arith::ExtFOp>(loc, joinType, rhs);
+             
+             Value res = b.create<arith::AddFOp>(loc, newLhs, newRhs);
+             mapping.map(op.getResult(0), res);
+             continue;
+        }
+    }
     b.clone(op, mapping);
   }
 
   // The matmul reduction result:
   Value matmulValue =
       mapping.lookup(matmulBody->getTerminator()->getOperand(0));
+  
+  // Cast matmul result to target type if needed
+  if (matmulValue.getType() != targetElementType) {
+      if (isa<FloatType>(matmulValue.getType()) && isa<FloatType>(targetElementType)) {
+           if (matmulValue.getType().getIntOrFloatBitWidth() < targetElementType.getIntOrFloatBitWidth())
+               matmulValue = b.create<arith::ExtFOp>(loc, targetElementType, matmulValue);
+           else
+               matmulValue = b.create<arith::TruncFOp>(loc, targetElementType, matmulValue);
+      }
+      // Add other castings if needed
+  }
 
   // The matmulValue (result of prod + args[2]) is the fused result.
   // We do NOT inline the AddOp body again because we already incorporated the bias 
@@ -311,10 +375,8 @@ private:
     if (op.getNumDpsInputs() != 2)
       return false;
     //return true for only add operation
-    if(auto arithOp = dyn_cast<arith::AddFOp>(op.getBody()->getTerminator()->getOperand(0).getDefiningOp())) {
-        return true; 
-    }
-    return false;
+    Operation *definingOp = op.getBody()->getTerminator()->getOperand(0).getDefiningOp();
+    return definingOp && (isa<arith::AddFOp>(definingOp) || isa<arith::AddIOp>(definingOp));
   }
 
   bool isMatmul(GenericOp op) const {
