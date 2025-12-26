@@ -12,4 +12,3 @@ install(
     PATTERN "CMakeLists.txt" EXCLUDE
 )
 add_subdirectory(Transforms)
-add_subdirectory(Pipeline)

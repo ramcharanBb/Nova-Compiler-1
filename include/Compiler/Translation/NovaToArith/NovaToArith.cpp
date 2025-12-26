@@ -40,33 +40,7 @@ struct NovaToArithOp{
   }
 };
 
-// struct NovaConstantOpLowering 
-//     : public OpConversionPattern<nova::ConstantOp> {
-//   using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
 
-//   LogicalResult matchAndRewrite(
-//       nova::ConstantOp op, OpAdaptor adaptor,
-//       ConversionPatternRewriter &rewriter) const override {
-    
-//     // Get the value attribute
-//     Attribute valueAttr = op.getValue();
-    
-//     // // Check if it's a TypedAttr
-//     auto typedAttr = dyn_cast<TypedAttr>(valueAttr);
-//     if (!typedAttr) {
-//       return rewriter.notifyMatchFailure(
-//           op, "constant value must be a TypedAttr");
-//     }
-//     mlir::Type resultType = op.getResult().getType();
-//     // Create the arith.constant operation
-//     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, typedAttr);
-    
-//     return success();
-//   }
-// };
-
-
-//template
 template <typename NovaArithOp>
 class NovaArithConversionPattern : public OpConversionPattern<NovaArithOp>{
    public :

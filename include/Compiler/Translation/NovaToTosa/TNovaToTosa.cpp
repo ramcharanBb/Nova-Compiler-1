@@ -41,6 +41,7 @@ static Value rmappingtosa(nova::AddOp op, Type resultType, ValueRange input, OpB
 
     return builder->create<tosa::AddOp>(op.getLoc(), resultType, v, w);
 }
+
 static Value rmappingtosa(nova::SubOp op, Type resultType, ValueRange input, OpBuilder *builder)
 {
 
@@ -54,10 +55,18 @@ static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input, OpB
 {
 
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-    auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
+    Value v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+    Value w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
+    // auto shiftTensorType = mlir::RankedTensorType::get({}, builder->getI8Type());
+    // auto shiftAttr = mlir::DenseElementsAttr::get(shiftTensorType, static_cast<uint8_t>(0));
 
-    return builder->create<tosa::MulOp>(op.getLoc(), resultType, ValueRange{v,w});
+    // auto shiftConstOp = builder->create<tosa::ConstOp>(op.getLoc(), shiftTensorType, shiftAttr);
+    // Value shiftValueOperand = shiftConstOp.getResult();
+
+    Value init = builder->create<tensor::EmptyOp>(
+        op.getLoc(), restensor.getShape(), restensor.getElementType());
+
+    return builder->create<linalg::MulOp>(op.getLoc(), resultType,ValueRange{v,w},ValueRange{init}).getResult(0);
 }
 static Value rmappingtosa(nova::PowOp op, Type resultType, ValueRange input, OpBuilder *builder)
 {

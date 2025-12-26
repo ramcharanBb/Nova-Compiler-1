@@ -53,7 +53,7 @@ namespace nova {
 
 void mlir::nova::createNovaPipelines(OpPassManager &pm) {
   //pm.addPass(createCanonicalizerPass());
-  pm.addPass(std::make_unique<DependencyAnalysisTestPass>());
+  pm.addNestedPass<func::FuncOp>(std::make_unique<DependencyAnalysisTestPass>());
   
   // Lower Nova dialect to standard dialects 
 //pm.addNestedPass<func::FuncOp>(ceateNovaToLinalg());  
