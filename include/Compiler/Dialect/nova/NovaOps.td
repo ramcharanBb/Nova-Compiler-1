@@ -10,8 +10,10 @@ include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
 include "mlir/IR/PatternBase.td"
 include "mlir/IR/BuiltinTypes.td" 
+
 //traits
 def NoComplexOperands : NativeOpTrait<"NoComplexOperands">;
+def NoIntegerOperands : NativeOpTrait<"NoIntegerOperands">;
 
 // data types
 def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
@@ -21,8 +23,25 @@ def Nova_ElementType : AnyTypeOf<[
   I1,I4, I8, I16, I32, I64, 
   F16, BF16, F32, F64,
   Complex<F64>,Complex<F32>]>;
-def Nova_Tensor : TensorOf<[Nova_ElementType]>;
 
+def Nova_DeviceAttr : AttrDef<Nova_Dialect, "NovaDevice"> {
+  let mnemonic = "device"; // This makes it #nova.device<...>
+  
+  // Parameters for the attribute (e.g., "gpu", "cpu")
+  let parameters = (ins "StringRef":$value);
+
+  let assemblyFormat = "`<` $value `>`";
+}
+
+def Nova_Tensor : TensorOf<[Nova_ElementType]>;
+/*def Nova_Tensor : Type<
+  And<[
+    RankedTensorOf<[Nova_ElementType]>.predicate,
+CPred<[{ 
+      ::llvm::isa_and_nonnull<::mlir::nova::NovaDeviceAttr>(
+        ::llvm::cast<::mlir::RankedTensorType>($_self).getEncoding()
+      ) 
+    }]>  ]>, "a ranked tensor with a nova device encoding">;*/
 // operations start
 //enum 
 def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be compared",[
@@ -65,6 +84,19 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComple
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 
+}
+def Nova_EmptyTensorOp : Op<Nova_Dialect,"empty_tensor", []> {
+  let summary = "allocate an uninitialized tensor with a specified shape";
+  let description = [{
+    The `nova.empty_tensor` operation allocates a tensor with the specified shape 
+    and element type. The memory is uninitialized.
+  }];
+
+  let arguments = (ins Variadic<Index>:$dynamicSizes);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let assemblyFormat = "`(`$dynamicSizes`)` attr-dict `:` type($result)";
 }
 //---------------------------------------reduction operations---------------------------------------------------------------------------------------
 
@@ -294,6 +326,9 @@ def Nova_AbsOp : Nova_UnaryOp<"abs", [Pure,InferTypeOpInterface]> {
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 }
+include "mlir/Interfaces/SideEffectInterfaces.td"
+
+
 
 def Nova_SquareOp : Nova_UnaryOp<"square", [Pure, SameOperandsAndResultType,NoComplexOperands]>{
   let arguments = (ins Nova_Tensor:$input);

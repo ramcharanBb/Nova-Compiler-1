@@ -1,0 +1,42 @@
+module {
+  func.func @activation_ops(%arg0: tensor<1x8xf32>) -> tensor<1x8xf32> {
+    %0 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %1 = tosa.maximum %arg0, %0 : (tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
+    %2 = tosa.sigmoid %1 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %3 = tosa.reduce_max %2 {axis = 1 : i32} : (tensor<1x8xf32>) -> tensor<1x1xf32>
+    %4 = tosa.sub %2, %3 : (tensor<1x8xf32>, tensor<1x1xf32>) -> tensor<1x8xf32>
+    %5 = tosa.exp %4 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %6 = tosa.reduce_sum %5 {axis = 1 : i32} : (tensor<1x8xf32>) -> tensor<1x1xf32>
+    %7 = tosa.const_shape  {values = dense<[1, 8]> : tensor<2xindex>} : () -> !tosa.shape<2>
+    %8 = tosa.tile %6, %7 : (tensor<1x1xf32>, !tosa.shape<2>) -> tensor<1x8xf32>
+    %9 = tosa.reciprocal %8 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %cst = arith.constant dense<0> : tensor<1xi8>
+    %10 = tosa.mul %5, %9, %cst : (tensor<1x8xf32>, tensor<1x8xf32>, tensor<1xi8>) -> tensor<1x8xf32>
+    %11 = "tosa.const"() <{values = dense<3.000000e+00> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %12 = tosa.pow %10, %11 : (tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
+    %13 = "tosa.const"() <{values = dense<4.471500e-02> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %14 = tosa.cast %12 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %15 = tosa.cast %13 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %16 = tensor.empty() : tensor<1x8xf32>
+    %17 = linalg.mul ins(%14, %15 : tensor<1x8xf32>, tensor<1x8xf32>) outs(%16 : tensor<1x8xf32>) -> tensor<1x8xf32>
+    %18 = tosa.add %10, %17 : (tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
+    %19 = "tosa.const"() <{values = dense<0.797884583> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %20 = tosa.cast %18 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %21 = tosa.cast %19 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %22 = tensor.empty() : tensor<1x8xf32>
+    %23 = linalg.mul ins(%20, %21 : tensor<1x8xf32>, tensor<1x8xf32>) outs(%22 : tensor<1x8xf32>) -> tensor<1x8xf32>
+    %24 = tosa.tanh %23 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %25 = "tosa.const"() <{values = dense<1.000000e+00> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %26 = tosa.add %24, %25 : (tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
+    %27 = "tosa.const"() <{values = dense<5.000000e-01> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %28 = tosa.cast %10 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %29 = tosa.cast %27 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %30 = tensor.empty() : tensor<1x8xf32>
+    %31 = linalg.mul ins(%28, %29 : tensor<1x8xf32>, tensor<1x8xf32>) outs(%30 : tensor<1x8xf32>) -> tensor<1x8xf32>
+    %32 = tosa.cast %31 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %33 = tosa.cast %26 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %34 = tensor.empty() : tensor<1x8xf32>
+    %35 = linalg.mul ins(%32, %33 : tensor<1x8xf32>, tensor<1x8xf32>) outs(%34 : tensor<1x8xf32>) -> tensor<1x8xf32>
+    return %35 : tensor<1x8xf32>
+  }
+}

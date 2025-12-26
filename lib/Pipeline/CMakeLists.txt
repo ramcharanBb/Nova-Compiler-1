@@ -1,5 +1,7 @@
 add_mlir_library(NovaPipelines
   Pipeline.cpp
+  Gpupipeline.cpp 
+     
 
   ADDITIONAL_HEADER_DIRS
   ${PROJECT_SOURCE_DIR}/include/Compiler
@@ -14,6 +16,8 @@ add_mlir_library(NovaPipelines
   MLIRIR
   MLIRAffineTransformPasses 
   AffineTransforms 
+  MLIRAffineTransforms
+  
   MLIRNova
   
   MLIRNovaToArithTransforms
@@ -27,5 +31,11 @@ add_mlir_library(NovaPipelines
   MLIRArithToLLVM
   MLIRControlFlowToLLVM
   MLIRBufferizationToMemRef
+  MLIRGPUTransforms
+  MLIRGPUToNVVMTransforms
+  MLIRNVVMToLLVMIRTranslation
+)
 
+target_include_directories(NovaPipelines PUBLIC 
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/Compiler/Pipeline>
 )

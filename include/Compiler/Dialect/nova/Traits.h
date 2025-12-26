@@ -28,7 +28,26 @@ public:
     return success();
   }
 };
-
+template <typename ConcreteType>
+class NoIntegerOperands : public TraitBase<ConcreteType, NoIntegerOperands> {
+public:
+  static LogicalResult verifyTrait(Operation *op) {
+    for (Value operand : op->getOperands()) {
+      Type type = operand.getType();
+      // Check if the type itself is complex
+      if (isa<IntegerType>(type)) {
+        return op->emitOpError("From Trait:operand cannot have integer type");
+      }
+      // Check if it's a tensor with complex elements
+      if (auto shapedType = dyn_cast<ShapedType>(type)) {
+        if (isa<IntegerType>(shapedType.getElementType())) {
+          return op->emitOpError("From Trait:operand cannot have integer element type");
+        }
+      }
+    }
+    return success();
+  }
+};
 }
 } 
 

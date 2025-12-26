@@ -96,6 +96,7 @@ namespace mlir
 
         return builder->create<tosa::MaximumOp>(op.getLoc(), resultType, v, w);
       }
+
       static Value mappingtosa(nova::MinOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
@@ -379,7 +380,6 @@ return builder->create<tosa::TransposeOp>(
        static Value mappingtosa(nova::TanhOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
         //if complex type use complex.exp
-
         auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
         if(isa<ComplexType>(tensorTy.getElementType())){
           // Need to use linalg.generic to apply complex.exp element-wise
@@ -777,7 +777,7 @@ return builder->create<tosa::TransposeOp>(
         Value cst_004 = rewriter.create<nova::ConstantOp>(
             loc, inputType, DenseElementsAttr::get(inputType, {4.471500e-02f}));
         auto op1 =
-            rewriter.create<nova::MulOp>(loc, inputType, op0.getResult(),
+            rewriter.create<nova::MulOp>(loc, inputType, op0,
                                          cst_004);
         // op2 = add(x, op1)
         auto op2 = rewriter.create<tosa::AddOp>(loc, inputType,
@@ -1205,6 +1205,19 @@ return builder->create<tosa::TransposeOp>(
         return success();
       }
     };
+struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::ConstantOp> {
+  using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
+  
+  LogicalResult matchAndRewrite(nova::ConstantOp op, 
+                               OpAdaptor adaptor,
+                               ConversionPatternRewriter &rewriter) const override {
+    ElementsAttr valueAttr = op.getValue();
+        DenseElementsAttr value = dyn_cast<DenseElementsAttr>(valueAttr);
+
+    rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, op.getOutput().getType(), value);
+    return success();
+  }
+};
 
     // pass definition
     namespace
@@ -1261,7 +1274,7 @@ return builder->create<tosa::TransposeOp>(
           target.addIllegalOp<nova::SigmoidOp>();
           target.addIllegalOp<nova::GeluOp>();
           target.addIllegalOp<nova::SoftmaxOp>();
-          target.addIllegalOp<nova::MatmulOp>();
+          //target.addIllegalOp<nova::MatmulOp>();
           target.addIllegalOp<nova::AddOp>();
           target.addIllegalOp<nova::ConstantOp>();
           target.addIllegalOp<nova::TransposeOp>();
@@ -1272,7 +1285,7 @@ return builder->create<tosa::TransposeOp>(
           RewritePatternSet patterns(&getContext());
           populateNovaToTosaConversionPatterns(patterns);
           populateNovaToTosaTemplatePatterns(patterns);
-          populateNovaToArithConversionPatterns(patterns);
+      //    populateNovaToArithConversionPatterns(patterns);
        //   populateNovaToLinalgPatterns(patterns);
          // populateNovaToLinalgPatternsTemplate(patterns);
 
@@ -1292,7 +1305,8 @@ return builder->create<tosa::TransposeOp>(
       patterns.add<NovaReluOpLowering, 
                    NovaGeluOpLowering,
                    NovaSoftmaxLoweringPattern,
-                   NovaMatmulOpTosaLowering,
+                //   NovaMatmulOpTosaLowering,
+                   NovaConstantToTosaConstPattern,
                    NovaToTosaLoweringTemplate<nova::MaxOp>,
                    NovaToTosaLoweringTemplate<nova::LogOp>,
                    NovaToTosaLoweringTemplate<nova::AbsOp>,
@@ -1311,6 +1325,7 @@ return builder->create<tosa::TransposeOp>(
                    NovaToTosaLoweringTemplate<nova::ReduceOp>,
                    NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
                    NovaToTosaLoweringTemplate<nova::ArgMinOp>,
+               //    NovaToTosaLoweringTemplate<nova::ConstantOp>,
                    NovaToTosaLoweringTemplate<nova::SigmoidOp>>(
           patterns.getContext());
     }

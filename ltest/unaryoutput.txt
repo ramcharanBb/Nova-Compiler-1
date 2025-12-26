@@ -1,0 +1,91 @@
+#map = affine_map<(d0, d1) -> (d0, d1)>
+module {
+  func.func @unary_ops(%arg0: tensor<1x8xf32>) -> tensor<1x8xf32> {
+    %0 = tensor.empty() : tensor<1x8xf32>
+    %1 = linalg.square ins(%arg0 : tensor<1x8xf32>) outs(%0 : tensor<1x8xf32>) -> tensor<1x8xf32>
+    %2 = tosa.cast %1 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %3 = "tosa.const"() <{values = dense<5.000000e-01> : tensor<1x8xf32>}> : () -> tensor<1x8xf32>
+    %4 = tosa.pow %2, %3 : (tensor<1x8xf32>, tensor<1x8xf32>) -> tensor<1x8xf32>
+    %5 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %6 = "tosa.const"() <{values = dense<0.000000e+00> : tensor<1xf32>}> : () -> tensor<1xf32>
+    %7 = tosa.negate %4, %5, %6 : (tensor<1x8xf32>, tensor<1xf32>, tensor<1xf32>) -> tensor<1x8xf32>
+    %8 = tosa.abs %7 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %9 = tensor.empty() : tensor<1x8xi8>
+    %10 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%8 : tensor<1x8xf32>) outs(%9 : tensor<1x8xi8>) {
+    ^bb0(%in: f32, %out: i8):
+      %cst = arith.constant 0.000000e+00 : f32
+      %40 = arith.cmpf ogt, %in, %cst : f32
+      %41 = arith.extui %40 : i1 to i8
+      %42 = arith.cmpf olt, %in, %cst : f32
+      %43 = arith.extui %42 : i1 to i8
+      %44 = arith.subi %41, %43 : i8
+      linalg.yield %44 : i8
+    } -> tensor<1x8xi8>
+    %11 = tosa.reciprocal %8 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %12 = tosa.cast %11 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %13 = tosa.exp %12 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %14 = tensor.empty() : tensor<1x8xf32>
+    %15 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%13 : tensor<1x8xf32>) outs(%14 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.exp2 %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %16 = tosa.cast %15 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %17 = tosa.log %16 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %18 = tensor.empty() : tensor<1x8xf32>
+    %19 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%17 : tensor<1x8xf32>) outs(%18 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.log2 %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %20 = tensor.empty() : tensor<1x8xf32>
+    %21 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%19 : tensor<1x8xf32>) outs(%20 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.log10 %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %22 = tosa.cast %21 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %23 = tosa.sin %22 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %24 = tosa.cast %23 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %25 = tosa.cos %24 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %26 = tensor.empty() : tensor<1x8xf32>
+    %27 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%25 : tensor<1x8xf32>) outs(%26 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.tan %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %28 = tensor.empty() : tensor<1x8xf32>
+    %29 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%27 : tensor<1x8xf32>) outs(%28 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.asin %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %30 = tensor.empty() : tensor<1x8xf32>
+    %31 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%29 : tensor<1x8xf32>) outs(%30 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.acos %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %32 = tensor.empty() : tensor<1x8xf32>
+    %33 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%31 : tensor<1x8xf32>) outs(%32 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.atan %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %34 = tensor.empty() : tensor<1x8xf32>
+    %35 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%33 : tensor<1x8xf32>) outs(%34 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.sinh %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %36 = tensor.empty() : tensor<1x8xf32>
+    %37 = linalg.generic {indexing_maps = [#map, #map], iterator_types = ["parallel", "parallel"]} ins(%35 : tensor<1x8xf32>) outs(%36 : tensor<1x8xf32>) {
+    ^bb0(%in: f32, %out: f32):
+      %40 = math.cosh %in : f32
+      linalg.yield %40 : f32
+    } -> tensor<1x8xf32>
+    %38 = tosa.cast %37 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    %39 = tosa.tanh %38 : (tensor<1x8xf32>) -> tensor<1x8xf32>
+    return %39 : tensor<1x8xf32>
+  }
+}

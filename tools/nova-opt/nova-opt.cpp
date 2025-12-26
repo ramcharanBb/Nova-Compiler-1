@@ -31,6 +31,7 @@
 #include "Compiler/Translation/NovaToTosa/NovaToTosa.h"
 #include "Compiler/Translation/NovaToLinalg/NovaToLinalg.h"
 #include "Compiler/Pipeline/Pipeline.h"
+#include "Compiler/Pipeline/Gpupipeline.h"
 #include "Compiler/Transforms/Affine/DependencyAnalysisTestPass.h"
 
 namespace mlir {
@@ -69,7 +70,7 @@ int main(int argc, char **argv) {
   mlir::registerAllToLLVMIRTranslations(registry);
 
   mlir::nova::registerNovaPipelines();
-
+   mlir::nova::registerNovaGPUPipelines();
   mlir::nova::registerAffinePasses();
   
   mlir::nova::registerNovaToArithLoweringPass();

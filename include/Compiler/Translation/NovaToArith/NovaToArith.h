@@ -35,3 +35,5 @@ void populateNovaToArithConversionPatterns(RewritePatternSet &patterns);
 } // namespace mlir
 
 #endif 
+//patterns
+//nova.consant -> arith.constant (int,float)
