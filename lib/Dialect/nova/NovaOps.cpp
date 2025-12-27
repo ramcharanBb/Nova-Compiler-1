@@ -10,7 +10,6 @@ using namespace mlir::nova;
 
 #define GET_OP_CLASSES
 #include "Compiler/Dialect/nova/NovaOpsEnums.cpp.inc"
-#include "Compiler/Dialect/nova/NovaOpsAttributes.cpp.inc"
 #include "Compiler/Dialect/nova/NovaOps.cpp.inc"
 
 // Helper Functions
@@ -764,8 +763,8 @@ LogicalResult CompareOp::verify()
             }
         } 
       }
-  auto lhsType = getLhs().getType();
-  auto rhsType = getRhs().getType();
+  auto lhsType = llvm::cast<mlir::RankedTensorType>(getLhs().getType());
+  auto rhsType = llvm::cast<mlir::RankedTensorType>(getRhs().getType());
 
   // Verify that input shapes match
   if (lhsType.getShape() != rhsType.getShape())

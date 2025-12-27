@@ -564,7 +564,7 @@ LogicalResult matchAndRewrite(
          
         Location loc = op.getLoc();
         auto permutedInit = rewriter.create<tensor::EmptyOp>(
-       loc, resultshape, op.getInput().getType().getElementType()); 
+       loc, resultshape,llvm::cast<mlir::ShapedType>(op.getInput().getType()).getElementType()); 
         rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, op.getInput(), permutedInit,resshape);
         return success();

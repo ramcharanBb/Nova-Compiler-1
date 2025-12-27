@@ -17,8 +17,11 @@ add_mlir_library(NovaPipelines
   MLIRAffineTransformPasses 
   AffineTransforms 
   MLIRAffineTransforms
-  
+  MLIRLinalgTransforms
+  MLIRLinalgDialect
   MLIRNova
+   
+
   
   MLIRNovaToArithTransforms
   MLIRNovaToLinalgTransforms
@@ -34,6 +37,12 @@ add_mlir_library(NovaPipelines
   MLIRGPUTransforms
   MLIRGPUToNVVMTransforms
   MLIRNVVMToLLVMIRTranslation
+  MLIRGPUTransforms
+  MLIRTosaToLinalg
+  MLIRTosaToArith
+  MLIRTosaToTensor
+  MLIRTosaToSCF
+  CompilerTransforms
 )
 
 target_include_directories(NovaPipelines PUBLIC 
