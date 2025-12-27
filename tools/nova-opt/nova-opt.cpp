@@ -34,6 +34,21 @@
 #include "Compiler/Pipeline/Gpupipeline.h"
 #include "Compiler/Transforms/Affine/DependencyAnalysisTestPass.h"
 
+#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/ControlFlowToLLVM/ControlFlowToLLVM.h"
+#include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVM.h"
+#include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
+#include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
+#include "mlir/Conversion/GPUToNVVM/GPUToNVVM.h"
+#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
+#include "mlir/Conversion/IndexToLLVM/IndexToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Conversion/ComplexToLLVM/ComplexToLLVM.h"
+#include "mlir/Conversion/NVVMToLLVM/NVVMToLLVM.h"
+#include "mlir/Conversion/GPUCommon/GPUToLLVM.h"
+
+
+
 namespace mlir {
 namespace nova {
 #define GEN_PASS_REGISTRATION
@@ -77,6 +92,20 @@ int main(int argc, char **argv) {
   mlir::nova::registerNovaToTosaLoweringPass();
   mlir::nova::regsiterNovaToLinalgLoweringTemplatePass();
   mlir::registerDependencyAnalysisTestPass();
+
+  mlir::arith::registerConvertArithToLLVMInterface(registry);
+  mlir::cf::registerConvertControlFlowToLLVMInterface(registry);
+  mlir::registerConvertFuncToLLVMInterface(registry);
+  mlir::registerConvertMathToLLVMInterface(registry);
+  mlir::registerConvertMemRefToLLVMInterface(registry);
+  mlir::NVVM::registerConvertGpuToNVVMInterface(registry);
+  mlir::ub::registerConvertUBToLLVMInterface(registry);
+  mlir::index::registerConvertIndexToLLVMInterface(registry);
+  mlir::vector::registerConvertVectorToLLVMInterface(registry);
+  mlir::registerConvertComplexToLLVMInterface(registry);
+  mlir::registerConvertNVVMToLLVMInterface(registry);
+  mlir::gpu::registerConvertGpuToLLVMInterface(registry);
+
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "Nova dialect optimizer\n", registry));

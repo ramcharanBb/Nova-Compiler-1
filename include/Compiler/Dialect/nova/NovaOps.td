@@ -32,17 +32,20 @@ def Nova_DeviceAttr : AttrDef<Nova_Dialect, "NovaDevice"> {
 
   let assemblyFormat = "`<` $value `>`";
 }
-
-def Nova_Tensor : TensorOf<[Nova_ElementType]>;
+def Nova_Tensor:TensorOf<[Nova_ElementType]>;
 /*def Nova_Tensor : Type<
   And<[
     RankedTensorOf<[Nova_ElementType]>.predicate,
-CPred<[{ 
-      ::llvm::isa_and_nonnull<::mlir::nova::NovaDeviceAttr>(
-        ::llvm::cast<::mlir::RankedTensorType>($_self).getEncoding()
-      ) 
-    }]>  ]>, "a ranked tensor with a nova device encoding">;*/
-// operations start
+    CPred<[{ 
+      [&]() {
+        if (auto rankedTy = llvm::dyn_cast<::mlir::RankedTensorType>($_self)) {
+          return ::llvm::isa_and_nonnull<::mlir::nova::NovaDeviceAttr>(rankedTy.getEncoding());
+        }
+        return false;
+      }()
+    }]>
+  ]>, "a ranked tensor with a nova device encoding">;*/
+  // operations start
 //enum 
 def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be compared",[
   I32EnumAttrCase<"EQ",0,"eq">,

@@ -11,11 +11,8 @@
 
 #define GET_OP_CLASSES
 
-
 #include "Compiler/Dialect/nova/NovaOpsEnums.h.inc"
 
-#define GET_ATTR_CLASSES
-#include "Compiler/Dialect/nova/NovaOpsAttributes.h.inc"
 
 // Ensure custom op traits are visible to TableGen-generated headers.
 #include "Compiler/Dialect/nova/Traits.h"
