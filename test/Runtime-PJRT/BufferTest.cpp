@@ -4,7 +4,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Runtime/NovaClient.h"
+#include "Compiler/Runtime-PJRT/NovaClient.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include <iostream>

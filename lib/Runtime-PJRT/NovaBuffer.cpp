@@ -4,7 +4,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Runtime/NovaBuffer.h"
+#include "Compiler/Runtime-PJRT/NovaBuffer.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/Support/Casting.h"
 #include <cstring>

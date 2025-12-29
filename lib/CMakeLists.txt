@@ -3,7 +3,7 @@ add_subdirectory(Dialect)
 add_subdirectory(Transforms)
 add_subdirectory(Pipeline)
 add_subdirectory(API)
-add_subdirectory(Runtime)
+add_subdirectory(Runtime-PJRT)
 
 # --- Additions for Export/Installation ---
 

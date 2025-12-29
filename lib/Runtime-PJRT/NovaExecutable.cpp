@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Runtime/NovaExecutable.h"
-#include "Compiler/Runtime/NovaThunk.h"
+#include "Compiler/Runtime-PJRT/NovaExecutable.h"
+#include "Compiler/Runtime-PJRT/NovaThunk.h"
 #include <stdexcept>
 
 namespace mlir {
