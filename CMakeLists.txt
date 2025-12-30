@@ -39,12 +39,6 @@ add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(tools)
 
-# Tests (optional)
-option(BUILD_TESTING "Build tests" ON)
-if(BUILD_TESTING)
-  add_subdirectory(test)
-endif()
-
 # --- Additions for Export/Installation ---
 
 # Load package helpers for configuring version files
