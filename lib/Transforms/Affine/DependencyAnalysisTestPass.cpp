@@ -114,7 +114,7 @@ UnrollDecision DependencyAnalysisTestPass::makeUnrollDecision(
     Block* body = forOp.getBody();
     if (!body || body->empty()) {
       // Empty loop - full unroll
-      decision = {true, tripCount.value_or(1), false, "Empty loop - full unroll"};
+    decision = {true, static_cast<unsigned>(tripCount.value_or(1)), false, "Empty loop - full unroll"};
       return decision;
     }
     

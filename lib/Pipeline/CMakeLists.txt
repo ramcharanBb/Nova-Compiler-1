@@ -17,6 +17,8 @@ add_mlir_library(NovaPipelines
   MLIRAffineTransformPasses 
   AffineTransforms 
   MLIRAffineTransforms
+  MLIRAffineUtils
+  MLIRAffineAnalysis
   MLIRLinalgTransforms
   MLIRLinalgDialect
   MLIRNova
@@ -34,10 +36,13 @@ add_mlir_library(NovaPipelines
   MLIRArithToLLVM
   MLIRControlFlowToLLVM
   MLIRBufferizationToMemRef
+  MLIRSCFToGPU
   MLIRGPUTransforms
+  MLIRGPUPipelines
+  MLIRNVVMTarget
+  MLIRAffineTransforms
   MLIRGPUToNVVMTransforms
   MLIRNVVMToLLVMIRTranslation
-  MLIRGPUTransforms
   MLIRTosaToLinalg
   MLIRTosaToArith
   MLIRTosaToTensor

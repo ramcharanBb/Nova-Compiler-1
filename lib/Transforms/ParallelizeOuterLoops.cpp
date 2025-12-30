@@ -127,7 +127,8 @@ private:
     });
 
     // Lower inner affine loops to SCF (from innermost to outermost)
-    for (auto it = innerAffineLoops.rbegin(); it != innerAffineLoops.rend(); ++it) {
+    // Note: walk is post-order by default (inner to outer), so we iterate forward
+    for (auto it = innerAffineLoops.begin(); it != innerAffineLoops.end(); ++it) {
       if (failed(lowerAffineForToSCF(*it))) {
         llvm::errs() << "Failed to lower inner affine loop\n";
         return failure();
@@ -169,8 +170,10 @@ private:
       }
     }
 
-    // Add terminator
-    bodyBuilder.create<scf::ReduceOp>(loc);
+    // Add terminator if missing
+    if (parallelBody->empty() || !parallelBody->back().hasTrait<OpTrait::IsTerminator>()) {
+      bodyBuilder.create<scf::ReduceOp>(loc);
+    }
 
     // Erase old loops
     iLoop.erase();
