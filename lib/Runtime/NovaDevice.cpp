@@ -4,7 +4,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Runtime-PJRT/NovaDevice.h"
+#include "Compiler/Runtime/NovaDevice.h"
 #include <cstdlib>
 #include <cstring>
 #include <sstream>
