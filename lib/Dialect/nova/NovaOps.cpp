@@ -1528,8 +1528,7 @@ LogicalResult ReduceOp::verify()
 //     auto operand = getOperand();                          \
 //     Type operandType = operand.getType();                 \
 //                                                           \
-//     if (auto shapedType = dyn_cast<ShapedType>(operandType)) \
-//     { \                     
+//     if (auto shapedType = dyn_cast<ShapedType>(operandType)){ \
 //         Type elementType = shapedType.getElementType();   \
 //         if (isa<ComplexType>(elementType)) {              \
 //             return emitOpError("does not support complex number operands, but found type: ") \
@@ -1582,4 +1581,58 @@ void SoftmaxOp::build(OpBuilder &builder, OperationState &state,
   }
   state.addTypes(resultType);
 }
+//losses
+LogicalResult MaeOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType)
+    return failure();
 
+  auto elemTy = inputType.getElementType();
+
+  Type outElemTy;
+
+  // Integer → f32
+  if (isa<IntegerType>(elemTy)) {
+    outElemTy = Float32Type::get(context);
+  }
+  // Float → same float
+  else if (isa<FloatType>(elemTy)) {
+    outElemTy = elemTy;
+  }
+  else {
+    return failure();
+  }
+  auto outType = RankedTensorType::get({}, outElemTy);
+
+  inferredReturnTypes.push_back(outType);
+  return success();
+
+}
+LogicalResult MseOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  return BinaryTypePromotionReturnType(
+      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+}
+LogicalResult CceOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  return BinaryTypePromotionReturnType(
+      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+}
+LogicalResult BceOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties,
+    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
+{
+  return BinaryTypePromotionReturnType(
+      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+}

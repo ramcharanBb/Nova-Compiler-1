@@ -952,6 +952,39 @@ def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMeth
   }];
   
 }
+//=========LOSSES===================
+def Nova_MaeOp :Op<Nova_Dialect,"mae",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+    let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+}
+def Nova_MseOp :Op<Nova_Dialect,"mse",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+    let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+}
+def Nova_CceOp :Op<Nova_Dialect,"cce",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+    let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+}
+def Nova_BceOp :Op<Nova_Dialect,"bce",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+    let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+}
 /*
 
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {

@@ -82,7 +82,6 @@ static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input, Op
    // auto tensorType = resultType.cast<TensorType>();
   //  auto elemType = tensorType.getElementType();
     // Cast input to result tensor type if needed
-    Value base = input[0];
 
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
     auto elemType = restensor.getElementType();
