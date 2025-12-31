@@ -57,12 +57,6 @@ static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input, OpB
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
     Value v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     Value w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-    // auto shiftTensorType = mlir::RankedTensorType::get({}, builder->getI8Type());
-    // auto shiftAttr = mlir::DenseElementsAttr::get(shiftTensorType, static_cast<uint8_t>(0));
-
-    // auto shiftConstOp = builder->create<tosa::ConstOp>(op.getLoc(), shiftTensorType, shiftAttr);
-    // Value shiftValueOperand = shiftConstOp.getResult();
-
     Value init = builder->create<tensor::EmptyOp>(
         op.getLoc(), restensor.getShape(), restensor.getElementType());
 
@@ -79,10 +73,6 @@ static Value rmappingtosa(nova::PowOp op, Type resultType, ValueRange input, OpB
 }
 static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input, OpBuilder *builder)
 {
-   // auto tensorType = resultType.cast<TensorType>();
-  //  auto elemType = tensorType.getElementType();
-    // Cast input to result tensor type if needed
-
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
     auto elemType = restensor.getElementType();
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
@@ -92,10 +82,6 @@ static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input, Op
         halfAttr = DenseElementsAttr::get(
             restensor,
             builder->getF32FloatAttr(0.5f));
-    // } else if (elemType.isF16()) {
-    //     halfAttr = DenseElementsAttr::get(
-    //         restensor,
-    //         builder->getF16FloatAttr(llvm::APFloat(0.5f)));
     } else {
         op.emitError("Sqrt lowering only supports floating-point tensors");
         return nullptr;
@@ -104,6 +90,27 @@ static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input, Op
     Value half = builder->create<tosa::ConstOp>(
         op.getLoc(), restensor, halfAttr);
     return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, half);
+}
+
+static Value rmappingtosa(nova::SquareOp op, Type resultType, ValueRange input, OpBuilder *builder)
+{
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto elemType = restensor.getElementType();
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+// Create constant 2.0 tensor
+    DenseElementsAttr twoAttr;
+    if (elemType.isF32()) {
+        twoAttr = DenseElementsAttr::get(
+            restensor,
+            builder->getF32FloatAttr(2.0f));
+    } else {
+        op.emitError("Square lowering only supports floating-point tensors");
+        return nullptr;
+    }
+
+    Value two = builder->create<tosa::ConstOp>(
+        op.getLoc(), restensor, twoAttr);
+    return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, two);
 }
 };
 
@@ -136,6 +143,7 @@ public:
       patterns.add<NovaToTosaLoweringTemplater<nova::AddOp>,
                    NovaToTosaLoweringTemplater<nova::SubOp>,
                    NovaToTosaLoweringTemplater<nova::MulOp>,
+                   NovaToTosaLoweringTemplater<nova::SquareOp>,
                    NovaToTosaLoweringTemplater<nova::PowOp>,
                    NovaToTosaLoweringTemplater<nova::SqrtOp>
                    >(patterns.getContext());

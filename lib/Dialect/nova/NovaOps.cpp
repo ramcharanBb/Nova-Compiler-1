@@ -737,13 +737,12 @@ void ConstantOp::build(OpBuilder &builder, OperationState &state,
 
 //---------------------------------comparison-----------------
 
-void CompareOp::build(OpBuilder &builder, OperationState &state,
+void CompareOp::build(OpBuilder &builder, OperationState &state,Type resultType,
                       Value lhs, Value rhs, ComparisonType kind)
 {
   state.addOperands({lhs, rhs});
   state.addAttribute("kind",
                      builder.getI32IntegerAttr(static_cast<int32_t>(kind)));
-  Type resultType = RankedTensorType::get({}, builder.getI1Type());
   state.addTypes(resultType);
 }
 LogicalResult CompareOp::verify()
@@ -1617,22 +1616,88 @@ LogicalResult MseOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  return BinaryTypePromotionReturnType(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType)
+    return failure();
+
+  auto elemTy = inputType.getElementType();
+
+  Type outElemTy;
+
+  // Integer → f32
+  if (isa<IntegerType>(elemTy)) {
+    outElemTy = Float32Type::get(context);
+  }
+  // Float → same float
+  else if (isa<FloatType>(elemTy)) {
+    outElemTy = elemTy;
+  }
+  else {
+    return failure();
+  }
+  auto outType = RankedTensorType::get({}, outElemTy);
+
+  inferredReturnTypes.push_back(outType);
+  return success();
+
 }
 LogicalResult CceOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  return BinaryTypePromotionReturnType(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType)
+    return failure();
+
+  auto elemTy = inputType.getElementType();
+
+  Type outElemTy;
+
+  // Integer → f32
+  if (isa<IntegerType>(elemTy)) {
+    outElemTy = Float32Type::get(context);
+  }
+  // Float → same float
+  else if (isa<FloatType>(elemTy)) {
+    outElemTy = elemTy;
+  }
+  else {
+    return failure();
+  }
+  auto outType = RankedTensorType::get({}, outElemTy);
+
+  inferredReturnTypes.push_back(outType);
+  return success();
+
 }
 LogicalResult BceOp::inferReturnTypes(
     MLIRContext *context, std::optional<Location> loc, ValueRange operands,
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  return BinaryTypePromotionReturnType(
-      context, loc, operands, attributes, properties, regions, inferredReturnTypes);
+  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  if (!inputType)
+    return failure();
+
+  auto elemTy = inputType.getElementType();
+
+  Type outElemTy;
+
+  // Integer → f32
+  if (isa<IntegerType>(elemTy)) {
+    outElemTy = Float32Type::get(context);
+  }
+  // Float → same float
+  else if (isa<FloatType>(elemTy)) {
+    outElemTy = elemTy;
+  }
+  else {
+    return failure();
+  }
+  auto outType = RankedTensorType::get({}, outElemTy);
+
+  inferredReturnTypes.push_back(outType);
+  return success();
+
 }

@@ -21,6 +21,8 @@ target_link_libraries(nova-translate PRIVATE
   LLVMMC
   LLVMAsmPrinter
   LLVMSelectionDAG 
+  MLIRToLLVMIRTranslationRegistration
+  MLIRLLVMToLLVMIRTranslation
 )
 
 target_include_directories(nova-translate PRIVATE

@@ -73,7 +73,7 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComple
   let assemblyFormat=[{
     `<`$kind `>`$lhs`,`$rhs attr-dict `:`type($lhs)`,`type($rhs)}];
  let builders=[
-   OpBuilder <(ins "Value":$lhs,"Value":$rhs,"ComparisonType":$kind)>
+   OpBuilder <(ins "Type":$resultType,"Value":$lhs,"Value":$rhs,"ComparisonType":$kind)>
  ];
  let skipDefaultBuilders=1;
   let hasVerifier=1;

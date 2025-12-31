@@ -17,6 +17,8 @@
 #include "mlir/Dialect/Func/TransformOps/FuncTransformOps.h"
 #include "mlir/Dialect/SCF/TransformOps/SCFTransformOps.h"
 #include "mlir/Dialect/MemRef/TransformOps/MemRefTransformOps.h"
+#include "mlir/Dialect/GPU/TransformOps/GPUTransformOps.h"
+#include "mlir/Dialect/Func/Extensions/InlinerExtension.h"
 
 
 #include "Compiler/Dialect/nova/NovaDialect.h"
@@ -80,6 +82,8 @@ int main(int argc, char **argv) {
   mlir::func::registerTransformDialectExtension(registry);
   mlir::scf::registerTransformDialectExtension(registry);
   mlir::memref::registerTransformDialectExtension(registry);
+  mlir::gpu::registerTransformDialectExtension(registry);
+  mlir::func::registerInlinerExtension(registry);
   // Register LLVM IR translation
   mlir::registerLLVMDialectTranslation(registry);
   mlir::registerAllToLLVMIRTranslations(registry);

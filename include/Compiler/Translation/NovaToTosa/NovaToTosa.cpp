@@ -749,15 +749,7 @@ return builder->create<tosa::TransposeOp>(
 
         return v;
       }
-            static Value mappingtosa(nova::AddOp op, Type resultType, ValueRange input, OpBuilder *builder)
-      {
-
-        auto restensor = dyn_cast<mlir::TensorType>(resultType);
-        auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-
-        return builder->create<tosa::AddOp>(op.getLoc(), resultType, v, w);
-      }
+           
       static Value mappingtosa(nova::MaeOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
@@ -783,14 +775,86 @@ return builder->create<tosa::TransposeOp>(
 
         return builder->create<nova::ReduceOp>(op.getLoc(),rk,abs,resultType,false,dimensions);
       }
-      static Value mappingtosa(nova::SubOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      static Value mappingtosa(nova::MseOp op, Type resultType, ValueRange input, OpBuilder *builder)
       {
-
+        // loss= reduce_mean(square(arg0-arg1))
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
-        auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
+        auto targetElemType = restensor.getElementType();
+        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
+        v_type = cast<mlir::TensorType>(input[1].getType());
+        newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[1]);
+        auto sub= builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
 
-        return builder->create<tosa::SubOp>(op.getLoc(), resultType, v, w);
+        mlir::RankedTensorType constType = mlir::RankedTensorType::get(v_type.getShape(), builder->getF32Type());
+        mlir::DenseElementsAttr constAttr = mlir::DenseElementsAttr::get(constType, llvm::ArrayRef<float_t>(2));
+        auto constTwo = builder->create<tosa::ConstOp>(op.getLoc(), constType, constAttr);
+        auto abs=builder->create<tosa::PowOp>(op.getLoc(),newVType,sub,constTwo);
+
+        nova::ReductionKind rk=nova::ReductionKind::MEAN;
+        llvm::SmallVector<int64_t, 1> dimensions;
+        dimensions.push_back(1);
+
+        return builder->create<nova::ReduceOp>(op.getLoc(),rk,abs,resultType,false,dimensions);
+      }
+            static Value mappingtosa(nova::CceOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      {
+        //basic casting logic 
+                auto restensor = dyn_cast<mlir::TensorType>(resultType);
+        auto targetElemType = restensor.getElementType();
+        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
+        v_type = cast<mlir::TensorType>(input[1].getType());
+        newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
+        //step1:creating 1x10^-7  tensor constant
+        auto epiAttr = DenseElementsAttr::get(newVType,builder->getF32FloatAttr(0.0000001f));
+        Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
+        //step2: creating one minus epsilon constant
+        auto oneminusepiAttr = DenseElementsAttr::get(newVType,builder->getF32FloatAttr(1.0f));
+        Value oneminusepi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+        //step3:creating compare op
+        auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
+       // Get the boolean element type (i1)
+        auto boolType = builder->getI1Type();
+        auto compareResultType = mlir::RankedTensorType::get(inputShape, boolType);
+        auto ck=nova::ComparisonType::GT;
+        auto compare=builder->create<nova::CompareOp>(op.getLoc(),compareResultType,v,epi,ck);
+        auto cp=builder->create<tosa::SelectOp>(op.getLoc(),newVType,compare,epi,v);
+        //step4:second compare
+        auto ck1=nova::ComparisonType::LT;
+        auto compare1=builder->create<nova::CompareOp>(op.getLoc(),compareResultType,cp,oneminusepi,ck1);
+        auto cp1=builder->create<tosa::SelectOp>(op.getLoc(),newVType,compare1,oneminusepi,cp);       
+        //step5 : target *log(cp)
+        auto log=builder->create<nova::LogOp>(op.getLoc(),cp1);
+        auto mul=builder->create<nova::MulOp>(op.getLoc(),log,w);
+        //step6:create -1 constant tensor (scalar) 
+        auto constType = mlir::RankedTensorType::get({}, targetElemType); 
+        auto minus1Attr = DenseElementsAttr::get(constType,builder->getF32FloatAttr(-1.0));
+        Value minus1 = builder->create<tosa::ConstOp>(op.getLoc(), constType, minus1Attr);       
+        //step 7 :reducemean(log result)
+        nova::ReductionKind rk=nova::ReductionKind::MEAN;
+        llvm::SmallVector<int64_t, 1> dimensions;
+        dimensions.push_back(1);
+        auto reduceres= builder->create<nova::ReduceOp>(op.getLoc(),rk,mul,resultType,false,dimensions);
+        //step 8: mul reduce result and -1
+        return builder->create<nova::MulOp>(op.getLoc(),reduceres,minus1);
+
       }
     };
 
@@ -1299,6 +1363,7 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
           target.addIllegalOp<nova::MulOp>();
           target.addIllegalOp<nova::PowOp>();
           target.addIllegalOp<nova::SqrtOp>();
+          target.addIllegalOp<nova::SquareOp>();
           target.addIllegalOp<nova::AndOp>();
           target.addIllegalOp<nova::OrOp>();
           target.addIllegalOp<nova::XorOp>();
@@ -1310,6 +1375,8 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
           target.addIllegalOp<nova::ReciprocalOp>();
           target.addIllegalOp<nova::ReduceOp>();
           target.addIllegalOp<nova::ArgmaxOp>();
+          target.addIllegalOp<nova::MseOp>();
+          target.addIllegalOp<nova::CceOp>();
           target.addIllegalOp<nova::ArgMinOp>();
           target.addIllegalOp<nova::SigmoidOp>();
           target.addIllegalOp<nova::GeluOp>();
@@ -1355,8 +1422,8 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
                    NovaToTosaLoweringTemplate<nova::MinOp>,
                    NovaToTosaLoweringTemplate<nova::AndOp>,
                    NovaToTosaLoweringTemplate<nova::SinOp>,
-                   NovaToTosaLoweringTemplate<nova::SubOp>,
-                   NovaToTosaLoweringTemplate<nova::AddOp>,
+                //   NovaToTosaLoweringTemplate<nova::SubOp>,
+                  // NovaToTosaLoweringTemplate<nova::AddOp>,
                    NovaToTosaLoweringTemplate<nova::CosOp>,
                    NovaToTosaLoweringTemplate<nova::TanhOp>,
                    NovaToTosaLoweringTemplate<nova::OrOp>,
@@ -1367,6 +1434,8 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
                    NovaToTosaLoweringTemplate<nova::ReciprocalOp>,
                    NovaToTosaLoweringTemplate<nova::ReduceOp>,
                    NovaToTosaLoweringTemplate<nova::MaeOp>,
+                   NovaToTosaLoweringTemplate<nova::MseOp>,
+                   NovaToTosaLoweringTemplate<nova::CceOp>,
                    NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
                    NovaToTosaLoweringTemplate<nova::ArgMinOp>,
                //    NovaToTosaLoweringTemplate<nova::ConstantOp>,

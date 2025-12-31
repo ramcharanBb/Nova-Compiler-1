@@ -19,13 +19,15 @@ target_link_libraries(nova-opt PRIVATE
 
   # Your custom libraries
   MLIRNova
-  CompilerTransforms
   MLIRAffineTransformPasses
   
   MLIRNovaToArithTransforms
   MLIRNovaToLinalgTransforms
   MLIRNovaToTosaTransforms
+  
+  # Dependencies ordered by usage: NovaPipelines depends on CompilerTransforms
   NovaPipelines
+  CompilerTransforms
 
   # Core dialects that we know exist and are needed
   MLIRAffineDialect

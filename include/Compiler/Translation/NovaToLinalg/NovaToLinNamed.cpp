@@ -258,8 +258,9 @@ public:
 };
 
 void populateNovaToLinalgNamedPatterns(RewritePatternSet &patterns) {
-  patterns.add<NovaToLinalgNamedopsConverter<nova::AddOp>,
-            NovaToLinalgNamedopsConverter<nova::SubOp>,
+  patterns.add<
+           //NovaToLinalgNamedopsConverter<nova::AddOp>,
+          //  NovaToLinalgNamedopsConverter<nova::SubOp>,
             NovaToLinalgNamedopsConverter<nova::MulOp>,
              NovaToLinalgNamedopsConverter<nova::DivOp>,
             NovaToLinalgNamedopsConverter<nova::SqrtOp>,

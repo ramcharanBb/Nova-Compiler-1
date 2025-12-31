@@ -4,6 +4,8 @@
 #include "Compiler/Transforms/Affine/AffineFullUnroll.h"
 #include "Compiler/Transforms/ParallelizeOuterLoops.h"
 #include "Compiler/Transforms/FuseMatmulBias.h"
+#include "Compiler/Transforms/FixGpuLaunch.h"
+#include "Compiler/Transforms/FastmathFlag.h"
 
 namespace mlir {
 namespace nova {
