@@ -154,11 +154,11 @@ AsyncValue* ExecutionEngine::ResolveArg(
     if constexpr (std::is_same_v<T, ArgInput>) {
       // Wrap input tensor in an available AsyncValue
       // In real implementation: return host_->MakeAvailableAsyncValue<Tensor>(*inputs[a.idx]);
-      return host_->MakeUnconstructedAsyncValue<void>();
+      return host_->MakeAvailableAsyncValue<void*>(inputs[a.idx]);
       
     } else if constexpr (std::is_same_v<T, ArgParam>) {
       // Wrap param tensor in an available AsyncValue
-      return host_->MakeUnconstructedAsyncValue<void>();
+      return host_->MakeAvailableAsyncValue<void*>(params[a.idx]);
       
     } else if constexpr (std::is_same_v<T, ArgSlot>) {
       // Return intermediate value
@@ -166,7 +166,8 @@ AsyncValue* ExecutionEngine::ResolveArg(
       
     } else if constexpr (std::is_same_v<T, ArgLiteral>) {
       // Wrap literal in an available AsyncValue
-      return host_->MakeUnconstructedAsyncValue<void>();
+      // Note: Passing nullptr for now as placeholder for literal data
+      return host_->MakeAvailableAsyncValue<void*>(nullptr);
     }
     
     return nullptr;
