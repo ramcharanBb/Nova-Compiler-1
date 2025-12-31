@@ -31,7 +31,6 @@ Makefile
 *.dll
 *.exe
 *.s
-*.txt
 
 # Ignore generated configs
 compile_commands.json
