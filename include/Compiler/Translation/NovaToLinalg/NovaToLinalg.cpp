@@ -226,8 +226,6 @@ LogicalResult matchAndRewrite(
     Value lhs = adaptor.getOperands()[0];
     Value rhs = adaptor.getOperands()[1];
 
-    auto lhsType = cast<RankedTensorType>(lhs.getType());
-    auto rhsType = cast<RankedTensorType>(rhs.getType());
     auto resultType = cast<RankedTensorType>(op.getType());
 
     int64_t rank = resultType.getRank();

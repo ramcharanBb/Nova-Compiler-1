@@ -125,12 +125,10 @@ perms.reserve(rank);
 llvm::SmallVector<bool> used(rank, false);
 
 for (int64_t i = 0; i < rank; ++i) {
-    bool found = false;
     for (int64_t j = 0; j < rank; ++j) {
         if (!used[j] && inShape[j] == outShape[i]) {
             perms.push_back(static_cast<int32_t>(j));
             used[j] = true;
-            found = true;
             break;
         }
     }
@@ -751,7 +749,51 @@ return builder->create<tosa::TransposeOp>(
 
         return v;
       }
+            static Value mappingtosa(nova::AddOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      {
+
+        auto restensor = dyn_cast<mlir::TensorType>(resultType);
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
+
+        return builder->create<tosa::AddOp>(op.getLoc(), resultType, v, w);
+      }
+      static Value mappingtosa(nova::MaeOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      {
+        auto restensor = dyn_cast<mlir::TensorType>(resultType);
+        auto targetElemType = restensor.getElementType();
+        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
+        v_type = cast<mlir::TensorType>(input[1].getType());
+        newVType = mlir::RankedTensorType::get(
+            v_type.getShape(), 
+            targetElemType
+        );
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[1]);
+       // loss= reduce_mean(abs(arg0-arg1))
+        auto sub= builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
+        auto abs=builder->create<tosa::AbsOp>(op.getLoc(),newVType,sub);
+        nova::ReductionKind rk=nova::ReductionKind::MEAN;
+        llvm::SmallVector<int64_t, 1> dimensions;
+        dimensions.push_back(1);
+
+        return builder->create<nova::ReduceOp>(op.getLoc(),rk,abs,resultType,false,dimensions);
+      }
+      static Value mappingtosa(nova::SubOp op, Type resultType, ValueRange input, OpBuilder *builder)
+      {
+
+        auto restensor = dyn_cast<mlir::TensorType>(resultType);
+        auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
+
+        return builder->create<tosa::SubOp>(op.getLoc(), resultType, v, w);
+      }
     };
+
     // pattern to convert nova.gelu to seauence of operations
     /// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
     struct NovaGeluOpLowering : public OpConversionPattern<GeluOp>
@@ -866,8 +908,6 @@ return builder->create<tosa::TransposeOp>(
         SmallVector<int64_t> dim;
         dim.push_back(dimension);
 
-        bool keepdims=true;
-        nova::ReductionKind kind= nova::ReductionKind::MAX;
         auto shape=NovaOpTosaOp::shapeFind(inputType,dimension);
         auto tempresult = RankedTensorType::get(shape, restype.getElementType());
         //creating cast - only if element types differ
@@ -1277,6 +1317,7 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
           //target.addIllegalOp<nova::MatmulOp>();
           target.addIllegalOp<nova::AddOp>();
           target.addIllegalOp<nova::ConstantOp>();
+          target.addIllegalOp<nova::MaeOp>();
           target.addIllegalOp<nova::TransposeOp>();
           target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
           TypeConverter typeConverter;
@@ -1314,6 +1355,8 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
                    NovaToTosaLoweringTemplate<nova::MinOp>,
                    NovaToTosaLoweringTemplate<nova::AndOp>,
                    NovaToTosaLoweringTemplate<nova::SinOp>,
+                   NovaToTosaLoweringTemplate<nova::SubOp>,
+                   NovaToTosaLoweringTemplate<nova::AddOp>,
                    NovaToTosaLoweringTemplate<nova::CosOp>,
                    NovaToTosaLoweringTemplate<nova::TanhOp>,
                    NovaToTosaLoweringTemplate<nova::OrOp>,
@@ -1323,6 +1366,7 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
                    NovaToTosaLoweringTemplate<nova::TransposeOp>,
                    NovaToTosaLoweringTemplate<nova::ReciprocalOp>,
                    NovaToTosaLoweringTemplate<nova::ReduceOp>,
+                   NovaToTosaLoweringTemplate<nova::MaeOp>,
                    NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
                    NovaToTosaLoweringTemplate<nova::ArgMinOp>,
                //    NovaToTosaLoweringTemplate<nova::ConstantOp>,
