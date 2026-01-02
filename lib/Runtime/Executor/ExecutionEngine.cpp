@@ -49,7 +49,9 @@ AsyncValue* ExecutionEngine::Execute(
       DispatchTask(task, intermediate_values, inputs, params);
     } else {
       // Wait for dependencies
-      RunWhenReady(deps, [this, &task, &intermediate_values, &inputs, &params]() {
+      // CRITICAL FIX: Capture intermediate_values BY VALUE (copy vector of pointers)
+      // because local vector dies when Execute returns.
+      RunWhenReady(deps, [this, &task, intermediate_values, &inputs, &params]() {
         DispatchTask(task, intermediate_values, inputs, params);
       });
     }
@@ -86,20 +88,49 @@ void ExecutionEngine::DispatchTask(
   AsyncValue* output = intermediate_values[task.task_id];
   
   // Enqueue work on thread pool
-  host_->EnqueueWork([this, &task, output, &intermediate_values, &inputs, &params]() {
+  host_->EnqueueWork([this, &task, output, intermediate_values, &inputs, &params]() {
     try {
-      // Get the kernel for this operation
-      KernelFunction kernel = registry_->GetKernel(task.op_name, task.device);
-      
-      // Resolve arguments
+      // Resolve arguments for BOTH paths
       std::vector<AsyncValue*> kernel_args;
       for (const auto& arg : task.args) {
         AsyncValue* resolved = ResolveArg(arg, intermediate_values, inputs, params);
         kernel_args.push_back(resolved);
       }
-      
-      // Execute kernel
-      AsyncValue* result = kernel(kernel_args, host_);
+
+      AsyncValue* result = nullptr;
+
+      if (task.jit_function) {
+         // --- JIT Path ---
+         // Signature: void* func(void** args)
+         using JITFunc = void* (*)(void**);
+         JITFunc func = reinterpret_cast<JITFunc>(task.jit_function);
+
+         // 1. Unwrap AsyncValues to raw pointers
+         std::vector<void*> raw_args;
+         raw_args.reserve(kernel_args.size());
+         for(auto* av : kernel_args) {
+            if(auto* concrete = dynamic_cast<ConcreteAsyncValue<void*>*>(av)) {
+                raw_args.push_back(concrete->get());
+            } else {
+                raw_args.push_back(nullptr); // Should handle error better
+            }
+         }
+
+         // 2. Call the compiled function
+         // We expect the JIT function to return the result pointer (e.g. Tensor*)
+         void* raw_result = func(raw_args.data());
+         
+         // 3. Wrap result in AsyncValue
+         result = host_->MakeAvailableAsyncValue<void*>(raw_result);
+
+      } else {
+         // --- Library Path ---
+         // Get the kernel for this operation from Registry
+         KernelFunction kernel = registry_->GetKernel(task.op_name, task.device);
+    
+         // Execute kernel wrapper
+         result = kernel(kernel_args, host_);
+      }
       
       // For now, just mark output as complete
       // In real implementation, we'd transfer the result

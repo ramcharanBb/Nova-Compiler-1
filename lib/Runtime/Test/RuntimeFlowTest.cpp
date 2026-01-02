@@ -41,55 +41,62 @@ AsyncValue* TestAddWrapper(const std::vector<AsyncValue*>& args, HostContext* ho
     return host->MakeAvailableAsyncValue<void*>(result);
 }
 
+// --- JIT Function Mock ---
+// Signature: void* func(void** args)
+// args[0] = input (MockTensor*)
+// Returns (MockTensor*)
+extern "C" void* jit_mock_mul_by_2(void** args) {
+    MockTensor* input = static_cast<MockTensor*>(args[0]);
+    std::cout << "  [JIT] Executing jit_mock_mul_by_2: " << input->val << " * 2\n";
+    return new MockTensor(input->val * 2.0f);
+}
+
 int main() {
-    std::cout << "=== Verification: Runtime Flow ===\n";
+    std::cout << "=== Verification: Runtime Flow (Hybrid) ===\n";
 
-    // 1. Setup Host (Thread Pool)
-    std::cout << "1. Creating HostContext...\n";
-    HostContext host(4); // 4 threads
-
-    // 2. Register Kernels
-    // We register our test kernel to avoid linking complexities for this standalone test
-    std::cout << "2. Registering Kernels...\n";
+    // 1. Setup Host
+    HostContext host(4);
     KernelRegistry::Instance().RegisterKernel("test.add", Device::CPU, TestAddWrapper);
 
-    // 3. Create Inputs
-    std::cout << "3. Preparing Inputs (A=10.0, B=20.0)...\n";
+    // 2. Inputs
     MockTensor* inputA = new MockTensor(10.0f);
     MockTensor* inputB = new MockTensor(20.0f);
-    
     std::vector<void*> inputs = { inputA, inputB };
 
-    // 4. Build Execution Plan (The "Recipe")
-    // Graph: 
-    //   Task 0: Add(Input0, Input1) -> Output
-    std::cout << "4. Building Execution Plan...\n";
+    // 3. Plan:
+    // Task 0: Add(In0, In1) -> 30.0 (Library)
+    // Task 1: JIT_Mul2(Task0) -> 60.0 (JIT)
+    
     RuntimeExecutionPlan plan;
-    plan.output_task_id = 0; // The result of Task 0 is the graph output
+    plan.output_task_id = 1;
 
+    // Task 0: Library Add
     AsyncTask task0;
     task0.task_id = 0;
     task0.op_name = "test.add";
     task0.device = Device::CPU;
-    
-    // Args: Input[0], Input[1]
-    task0.args.push_back(ArgInput{0});
-    task0.args.push_back(ArgInput{1});
-    
+    task0.args = { ArgInput{0}, ArgInput{1} };
     plan.tasks.push_back(task0);
 
-    // 5. Execute
-    std::cout << "5. Executing Graph...\n";
+    // Task 1: JIT Mul
+    AsyncTask task1;
+    task1.task_id = 1;
+    task1.op_name = "jit.generated"; // ignored by JIT launcher
+    task1.device = Device::CPU;
+    task1.dependencies = { 0 };       // Wait for Task 0
+    task1.args = { ArgSlot{0} };      // Use result of Task 0
+    
+    // Casting function pointer to void*
+    task1.jit_function = reinterpret_cast<void*>(&jit_mock_mul_by_2);
+    
+    plan.tasks.push_back(task1);
+
+    // 4. Execute
     ExecutionEngine engine(&host);
-    
-    // We use ExecuteSync for simplicity in testing
-    // In real usage, we'd get an AsyncValue back.
     AsyncValue* result_av = engine.Execute(plan, inputs, {});
-    
-    std::cout << "   ... Waiting for result ...\n";
     result_av->Await();
 
-    // 6. Check Result
+    // 5. Check
     if (result_av->IsError()) {
         std::cerr << "FAILED: " << result_av->GetError() << "\n";
         return 1;
@@ -98,12 +105,12 @@ int main() {
     auto* concrete_result = dynamic_cast<ConcreteAsyncValue<void*>*>(result_av);
     MockTensor* res = static_cast<MockTensor*>(concrete_result->get());
     
-    std::cout << "6. Result: " << res->val << "\n";
+    std::cout << "Result: " << res->val << "\n";
     
-    if (res->val == 30.0f) {
-        std::cout << "SUCCESS! (10.0 + 20.0 = 30.0)\n";
+    if (res->val == 60.0f) {
+        std::cout << "SUCCESS! ( (10+20) * 2 = 60 )\n";
     } else {
-        std::cerr << "FAILURE: Expected 30.0, got " << res->val << "\n";
+        std::cerr << "FAILURE: Expected 60.0, got " << res->val << "\n";
         return 1;
     }
 

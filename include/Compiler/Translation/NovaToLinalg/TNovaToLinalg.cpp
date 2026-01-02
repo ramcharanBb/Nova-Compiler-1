@@ -1154,6 +1154,7 @@ namespace mlir
         target.addIllegalOp<nova::TanOp>();
         target.addIllegalOp<nova::TanhOp>();
         target.addIllegalOp<nova::TransposeOp>();
+        target.addIllegalOp<nova::Rndm2DOp>();
 
         target.markUnknownOpDynamicallyLegal([](Operation *)
                                              { return true; });
