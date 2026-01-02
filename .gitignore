@@ -1,5 +1,6 @@
 # Ignore build directory
 build/
+install/
 
 # Executable files
 final_benchmark
