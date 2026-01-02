@@ -1,10 +1,7 @@
 module {
-  func.func @binary_ops(%arg0: tensor<1x8xi32>,%arg1: tensor<1x8xf32>,%arg11:tensor<4x8xf32>) -> tensor<f32> {
+  func.func @binary_ops(%arg0: f64,%arg1: f64,%arg2:i32) -> tensor<8x8xf64> {
 
-    %1 = nova.mae %arg0, %arg1 : tensor<1x8xi32>, tensor<1x8xf32>
-    %2 = nova.mse %arg0, %arg1 : tensor<1x8xi32>, tensor<1x8xf32>
-    %3 = nova.cce %arg0, %arg1 : tensor<1x8xi32>, tensor<1x8xf32>
-    %4 = nova.bce %arg0, %arg1 : tensor<1x8xi32>, tensor<1x8xf32>
-    return %1 : tensor<f32>
+    %1 = nova.rndm2d %arg0, %arg1,%arg2 : tensor<8x8xf64>
+    return %1 : tensor<8x8xf64>
   }
 }

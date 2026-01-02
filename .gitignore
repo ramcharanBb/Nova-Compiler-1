@@ -48,7 +48,7 @@ Thumbs.db
 *.bin
 *.run
 
-# Shell scripts (added)
-*.sh
-*.bash
-*.zsh
+# # Shell scripts (added)
+# *.sh
+# *.bash
+# *.zsh

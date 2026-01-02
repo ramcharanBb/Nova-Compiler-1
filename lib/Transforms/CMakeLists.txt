@@ -1,6 +1,7 @@
 # Add CleanupPass to the list of sources
 add_mlir_library(CompilerTransforms
   CleanupPass.cpp
+  AddGpuMemoryCopies.cpp
   FuseMatmulBias.cpp
   FastmathFlag.cpp
   FixGpuLaunch.cpp

@@ -14,7 +14,7 @@ include "mlir/IR/BuiltinTypes.td"
 //traits
 def NoComplexOperands : NativeOpTrait<"NoComplexOperands">;
 def NoIntegerOperands : NativeOpTrait<"NoIntegerOperands">;
-
+ 
 // data types
 def I4 : Type<CPred<"$_self.isInteger(4)">, "4-bit integer">,
          BuildableType<"$_builder.getIntegerType(4)">;
@@ -983,6 +983,15 @@ def Nova_BceOp :Op<Nova_Dialect,"bce",[Pure,DeclareOpInterfaceMethods<InferTypeO
 
   let assemblyFormat = [{
     $lhs `,` $rhs attr-dict `:` type($lhs) `,` type($rhs) 
+  }];
+}
+//==============================Weight initialier operations======================
+def Nova_Rndm2DOp:Op<Nova_Dialect,"rndm2d",[Pure]>{
+    let arguments = (ins F64:$min, F64:$max, I32:$seed);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $min `,` $max `,` $seed attr-dict `:` type($result) 
   }];
 }
 /*

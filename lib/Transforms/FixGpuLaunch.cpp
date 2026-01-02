@@ -11,171 +11,191 @@ using namespace mlir;
 namespace mlir {
 namespace nova {
 
-class ConvertLaunchFuncToCall : public OpRewritePattern<gpu::LaunchFuncOp> {
-public:
-  using OpRewritePattern<gpu::LaunchFuncOp>::OpRewritePattern;
+// Helper to declare runtime functions
+static LLVM::LLVMFuncOp getOrDeclareFunc(ModuleOp module, OpBuilder &rewriter, StringRef name, Type resultTy, ArrayRef<Type> argTypes) {
+    if (auto func = module.lookupSymbol<LLVM::LLVMFuncOp>(name))
+        return func;
+    
+    // Check for collision
+    if (auto existing = SymbolTable::lookupSymbolIn(module, name)) {
+        if (auto llvmFunc = llvm::dyn_cast<LLVM::LLVMFuncOp>(existing))
+            return llvmFunc;
+    }
 
-  LogicalResult matchAndRewrite(gpu::LaunchFuncOp op,
-                                PatternRewriter &rewriter) const override {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(module.getBody());
+    auto funcType = LLVM::LLVMFunctionType::get(resultTy, argTypes);
+    return rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), name, funcType);
+}
+
+class ConvertGpuAllocToCall : public OpRewritePattern<gpu::AllocOp> {
+public:
+  using OpRewritePattern<gpu::AllocOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(gpu::AllocOp op, PatternRewriter &rewriter) const override {
     auto loc = op.getLoc();
     auto module = op->getParentOfType<ModuleOp>();
+    auto ctx = op.getContext();
     
-    auto voidPtrTy = LLVM::LLVMPointerType::get(op.getContext());
-    auto intPtrTy = IntegerType::get(op.getContext(), 64);
-    auto int32Ty = IntegerType::get(op.getContext(), 32);
+    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto int64Ty = IntegerType::get(ctx, 64);
+    auto int32Ty = IntegerType::get(ctx, 32);
+
+    auto cudaMalloc = getOrDeclareFunc(module, rewriter, "cudaMalloc", int32Ty, {voidPtrTy, int64Ty});
+
+    MemRefType memRefType = op.getType();
+    int64_t elementSize = memRefType.getElementType().getIntOrFloatBitWidth() / 8;
+    if (elementSize == 0) elementSize = 1;
+
+    Value sizeBytes = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(elementSize));
     
-    // Declare runtime helpers if not present
-    auto declareFunc = [&](StringRef name, Type resultTy, ArrayRef<Type> argTypes) -> LLVM::LLVMFuncOp {
-        if (auto func = module.lookupSymbol<LLVM::LLVMFuncOp>(name))
-            return func;
-        
-        if (auto existing = SymbolTable::lookupSymbolIn(module, name)) {
-            if (auto llvmFunc = llvm::dyn_cast<LLVM::LLVMFuncOp>(existing))
-                return llvmFunc;
-            // Name conflict but not an LLVM func. We'll have to hope for the best or rename.
-            // But let's assume if it exists with our runtime name, we can cast or it will be fixed.
+    unsigned dynamicIdx = 0;
+    auto dynamicSizes = op.getDynamicSizes();
+    
+    for (int i = 0; i < memRefType.getRank(); ++i) {
+        Value dimSize;
+        if (memRefType.isDynamicDim(i)) {
+             Value dynSize = dynamicSizes[dynamicIdx++];
+             dimSize = rewriter.create<UnrealizedConversionCastOp>(loc, int64Ty, dynSize).getResult(0);
+        } else {
+             dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(memRefType.getDimSize(i)));
         }
-
-        PatternRewriter::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(module.getBody());
-        auto funcType = LLVM::LLVMFunctionType::get(resultTy, argTypes);
-        return rewriter.create<LLVM::LLVMFuncOp>(loc, name, funcType);
-    };
-
-    auto loadFunc = declareFunc("mgpuModuleLoad", voidPtrTy, {voidPtrTy});
-    auto getFunc = declareFunc("mgpuModuleGetFunction", voidPtrTy, {voidPtrTy, voidPtrTy});
-    auto launchFunc = declareFunc("mgpuLaunchKernel", intPtrTy, {
-        voidPtrTy, intPtrTy, intPtrTy, intPtrTy, intPtrTy, intPtrTy, intPtrTy,
-        int32Ty, voidPtrTy, voidPtrTy, voidPtrTy
-    });
-    
-    // 1. Symbol and Global Management
-    auto kernelName = op.getKernelName();
-    auto kernelModuleName = op.getKernelModuleName();
-    
-    // Create global strings for kernel name and module name if they don't exist
-    auto getOrInsertGlobalString = [&](StringRef name, StringRef value) {
-        std::string globalName = "kstr_" + name.str();
-        auto global = module.lookupSymbol<LLVM::GlobalOp>(globalName);
-        if (!global) {
-            PatternRewriter::InsertionGuard guard(rewriter);
-            rewriter.setInsertionPointToStart(module.getBody());
-            // Ensure null termination
-            std::string nullTerminated = value.str();
-            nullTerminated.push_back('\0');
-            auto type = LLVM::LLVMArrayType::get(IntegerType::get(op.getContext(), 8), nullTerminated.size());
-            global = rewriter.create<LLVM::GlobalOp>(loc, type, /*isConstant=*/true, LLVM::Linkage::Internal, globalName, rewriter.getStringAttr(nullTerminated), /*alignment=*/0);
-        }
-        return global;
-    };
-
-    auto kNameGlobal = getOrInsertGlobalString(kernelName, kernelName);
-    
-    // Get pointer to global string
-    auto getPtrToGlobal = [&](LLVM::GlobalOp global) {
-        Value addr = rewriter.create<LLVM::AddressOfOp>(loc, global);
-        Value idx0 = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(0));
-        return rewriter.create<LLVM::GEPOp>(loc, voidPtrTy, global.getType(), addr, ValueRange{idx0, idx0}).getResult();
-    };
-
-    Value kernelNamePtr = getPtrToGlobal(kNameGlobal);
-
-    // Module & Kernel Handle Retrieval
-    Value binaryDataPtr = rewriter.create<LLVM::ZeroOp>(loc, voidPtrTy);
-    module.walk([&](gpu::BinaryOp binary) {
-        if (binary.getName() == kernelModuleName) {
-            // Found the binary. In a real system, we'd pass the binary data address.
-            // For now, we still use ZeroOp but the logic is there to be hooked.
-            binaryDataPtr = rewriter.create<LLVM::ZeroOp>(loc, voidPtrTy);
-        }
-    });
-    
-    Value loadedModule = rewriter.create<LLVM::CallOp>(loc, loadFunc, binaryDataPtr).getResult();
-    Value kernelHandle = rewriter.create<LLVM::CallOp>(loc, getFunc, ValueRange{loadedModule, kernelNamePtr}).getResult();
-
-    // 2. Grid/Block Setup
-    auto castToI64 = [&](Value v) {
-      if (v.getType().isInteger(64)) return v;
-      if (v.getType().isIndex()) {
-          // Use unrealized_conversion_cast to bridge to i64 for index
-          return rewriter.create<UnrealizedConversionCastOp>(loc, intPtrTy, v).getResult(0);
-      }
-      return rewriter.create<LLVM::ZExtOp>(loc, intPtrTy, v).getResult();
-    };
-    Value gridX = castToI64(op.getGridSizeX());
-    Value gridY = castToI64(op.getGridSizeY());
-    Value gridZ = castToI64(op.getGridSizeZ());
-    Value blockX = castToI64(op.getBlockSizeX());
-    Value blockY = castToI64(op.getBlockSizeY());
-    Value blockZ = castToI64(op.getBlockSizeZ());
-    
-    Value smem = op.getDynamicSharedMemorySize();
-    if (!smem) smem = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(0));
-    else smem = rewriter.create<LLVM::TruncOp>(loc, int32Ty, smem);
-    
-    // 3. Async Support
-    Value stream = rewriter.create<LLVM::ZeroOp>(loc, voidPtrTy);
-    if (!op.getAsyncDependencies().empty()) {
-        Value dep = op.getAsyncDependencies().front();
-        if (dep.getType() == voidPtrTy) {
-            stream = dep;
-        }
+        sizeBytes = rewriter.create<LLVM::MulOp>(loc, sizeBytes, dimSize);
     }
-                   
-    // 4. Argument Marshalling
-    auto numArgs = op.getNumKernelOperands();
+
     Value one = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(1));
-    Value arraySize = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(numArgs));
-    Value paramsArray = rewriter.create<LLVM::AllocaOp>(loc, voidPtrTy, voidPtrTy, arraySize, 8);
+    Value ptrVar = rewriter.create<LLVM::AllocaOp>(loc, voidPtrTy, voidPtrTy, one, 8);
     
-    for (unsigned i = 0; i < numArgs; ++i) {
-        Value val = op.getKernelOperand(i);
-        Type valTy = val.getType();
-        
-        // If the operand is still a high-level type (like memref), cast it to its LLVM counterpart
-        if (llvm::isa<MemRefType, IndexType>(valTy)) {
-            Type targetTy = voidPtrTy;
-            if (valTy.isIndex()) {
-                targetTy = intPtrTy;
-            }
-            val = rewriter.create<UnrealizedConversionCastOp>(loc, targetTy, val).getResult(0);
-            valTy = targetTy;
+    rewriter.create<LLVM::CallOp>(loc, cudaMalloc, ValueRange{ptrVar, sizeBytes});
+    Value devicePtr = rewriter.create<LLVM::LoadOp>(loc, voidPtrTy, ptrVar);
+
+    SmallVector<Type> elemTypes;
+    elemTypes.push_back(voidPtrTy); 
+    elemTypes.push_back(voidPtrTy);
+    elemTypes.push_back(int64Ty);
+    if (memRefType.getRank() > 0) {
+        elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefType.getRank()));
+        elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefType.getRank()));
+    }
+    Type descType = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
+
+    Value desc = rewriter.create<LLVM::UndefOp>(loc, descType);
+    desc = rewriter.create<LLVM::InsertValueOp>(loc, desc, devicePtr, ArrayRef<int64_t>{0});
+    desc = rewriter.create<LLVM::InsertValueOp>(loc, desc, devicePtr, ArrayRef<int64_t>{1});
+    Value zero = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(0));
+    desc = rewriter.create<LLVM::InsertValueOp>(loc, desc, zero, ArrayRef<int64_t>{2});
+
+    if (memRefType.getRank() > 0) {
+        Value sizesArray = rewriter.create<LLVM::UndefOp>(loc, elemTypes[3]);
+        dynamicIdx = 0;
+        for (int i=0; i<memRefType.getRank(); ++i) {
+             Value dimSize;
+             if (memRefType.isDynamicDim(i)) {
+                 Value dynSize = dynamicSizes[dynamicIdx++];
+                 dimSize = rewriter.create<UnrealizedConversionCastOp>(loc, int64Ty, dynSize).getResult(0);
+             } else {
+                 dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(memRefType.getDimSize(i)));
+             }
+             sizesArray = rewriter.create<LLVM::InsertValueOp>(loc, sizesArray, dimSize, ArrayRef<int64_t>{i});
         }
-        
-        Value slot = rewriter.create<LLVM::AllocaOp>(loc, voidPtrTy, valTy, one, 8);
-        rewriter.create<LLVM::StoreOp>(loc, val, slot);
-        Value index = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(i));
-        Value paramSlotPtr = rewriter.create<LLVM::GEPOp>(loc, voidPtrTy, voidPtrTy, paramsArray, index);
-        rewriter.create<LLVM::StoreOp>(loc, slot, paramSlotPtr);
+        desc = rewriter.create<LLVM::InsertValueOp>(loc, desc, sizesArray, ArrayRef<int64_t>{3});
+        Value stridesArray = rewriter.create<LLVM::UndefOp>(loc, elemTypes[4]);
+        desc = rewriter.create<LLVM::InsertValueOp>(loc, desc, stridesArray, ArrayRef<int64_t>{4});
+    }
+
+    rewriter.replaceOpWithNewOp<UnrealizedConversionCastOp>(op, memRefType, desc);
+    return success();
+  }
+};
+
+class ConvertGpuMemcpyToCall : public OpRewritePattern<gpu::MemcpyOp> {
+public:
+  using OpRewritePattern<gpu::MemcpyOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(gpu::MemcpyOp op, PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto module = op->getParentOfType<ModuleOp>();
+    auto ctx = op.getContext();
+    
+    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto int64Ty = IntegerType::get(ctx, 64);
+    auto int32Ty = IntegerType::get(ctx, 32);
+
+    auto cudaMemcpy = getOrDeclareFunc(module, rewriter, "cudaMemcpy", int32Ty, {voidPtrTy, voidPtrTy, int64Ty, int32Ty});
+
+    Value dst = op.getDst();
+    Value src = op.getSrc();
+    
+    auto getPtrFromMemRef = [&](Value val) -> Value {
+        auto memRefTy = llvm::cast<MemRefType>(val.getType());
+        SmallVector<Type> elemTypes;
+        elemTypes.push_back(voidPtrTy); 
+        elemTypes.push_back(voidPtrTy);
+        elemTypes.push_back(int64Ty);
+        if (memRefTy.getRank() > 0) {
+             elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+             elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+        }
+        Type descTy = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
+        Value desc = rewriter.create<UnrealizedConversionCastOp>(loc, descTy, val).getResult(0);
+        return rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1}); 
+    };
+
+    Value dstPtr = getPtrFromMemRef(dst);
+    Value srcPtr = getPtrFromMemRef(src);
+    
+    MemRefType memRefType = llvm::cast<MemRefType>(dst.getType());
+    int64_t elementSize = memRefType.getElementType().getIntOrFloatBitWidth() / 8;
+    if (elementSize == 0) elementSize = 1;
+    
+    Value sizeBytes = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(elementSize));
+    for (int i = 0; i < memRefType.getRank(); ++i) {
+         Value dimSize;
+         if (memRefType.isDynamicDim(i)) {
+             dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(1)); 
+         } else {
+             dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(memRefType.getDimSize(i)));
+         }
+         sizeBytes = rewriter.create<LLVM::MulOp>(loc, sizeBytes, dimSize);
     }
     
-    Value nullExtra = rewriter.create<LLVM::ZeroOp>(loc, voidPtrTy);
+    Value kind = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(4));
+    rewriter.create<LLVM::CallOp>(loc, cudaMemcpy, ValueRange{dstPtr, srcPtr, sizeBytes, kind});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class ConvertGpuDeallocToCall : public OpRewritePattern<gpu::DeallocOp> {
+public:
+  using OpRewritePattern<gpu::DeallocOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(gpu::DeallocOp op, PatternRewriter &rewriter) const override {
+    auto loc = op.getLoc();
+    auto module = op->getParentOfType<ModuleOp>();
+    auto ctx = op.getContext();
+    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto int32Ty = IntegerType::get(ctx, 32);
+    auto int64Ty = IntegerType::get(ctx, 64);
+
+    auto cudaFree = getOrDeclareFunc(module, rewriter, "cudaFree", int32Ty, {voidPtrTy});
+    auto memRef = op.getMemref();
     
-    // 5. Execution & Error Handling
-    auto launchCall = rewriter.create<LLVM::CallOp>(loc, launchFunc, ValueRange{
-        kernelHandle, gridX, gridY, gridZ, blockX, blockY, blockZ,
-        smem, stream, paramsArray, nullExtra
-    });
+    auto memRefTy = llvm::cast<MemRefType>(memRef.getType());
+    SmallVector<Type> elemTypes;
+    elemTypes.push_back(voidPtrTy); 
+    elemTypes.push_back(voidPtrTy);
+    elemTypes.push_back(int64Ty);
+    if (memRefTy.getRank() > 0) {
+         elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+         elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+    }
+    Type descTy = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
     
-    Value status = launchCall.getResult();
-    Value zeroI64 = rewriter.create<LLVM::ConstantOp>(loc, intPtrTy, rewriter.getI64IntegerAttr(0));
-    Value isError = rewriter.create<LLVM::ICmpOp>(loc, LLVM::ICmpPredicate::ne, status, zeroI64);
+    Value desc = rewriter.create<UnrealizedConversionCastOp>(loc, descTy, memRef).getResult(0);
+    Value ptr = rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1});
     
-    // Add a conditional trap to ensure error handling is preserved in the IR
-    auto currentBlock = rewriter.getBlock();
-    auto postBlock = rewriter.splitBlock(currentBlock, rewriter.getInsertionPoint());
-    auto trapBlock = rewriter.createBlock(postBlock);
-    
-    rewriter.setInsertionPointToEnd(currentBlock);
-    rewriter.create<LLVM::CondBrOp>(loc, isError, trapBlock, postBlock);
-    
-    rewriter.setInsertionPointToEnd(trapBlock);
-    auto trapFunc = declareFunc("llvm.trap", LLVM::LLVMVoidType::get(op.getContext()), {});
-    rewriter.create<LLVM::CallOp>(loc, trapFunc, ValueRange{});
-    rewriter.create<LLVM::UnreachableOp>(loc);
-    
-    rewriter.setInsertionPointToStart(postBlock);
-    
+    rewriter.create<LLVM::CallOp>(loc, cudaFree, ValueRange{ptr});
     rewriter.eraseOp(op);
     return success();
   }
@@ -188,8 +208,6 @@ public:
   void runOnOperation() override {
     ModuleOp module = getOperation();
     
-    // Fix missing dealloc_helper declaration from buffer deallocation
-    // Use a more aggressive approach: always ensure LLVMFuncOp exists, remove any func.func with same name
     if (auto existing = SymbolTable::lookupSymbolIn(module, "dealloc_helper")) {
         if (!llvm::isa<LLVM::LLVMFuncOp>(existing)) {
             existing->erase();
@@ -206,7 +224,9 @@ public:
     }
 
     RewritePatternSet patterns(module.getContext());
-    patterns.add<ConvertLaunchFuncToCall>(module.getContext());
+    patterns.add<ConvertGpuAllocToCall>(module.getContext());
+    patterns.add<ConvertGpuMemcpyToCall>(module.getContext());
+    patterns.add<ConvertGpuDeallocToCall>(module.getContext());
     
     if (failed(applyPatternsGreedily(module, std::move(patterns)))) {
       signalPassFailure();
