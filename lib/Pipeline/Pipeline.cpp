@@ -22,6 +22,8 @@
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/OneShotAnalysis.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
+#include "mlir/Dialect/MemRef/Transforms/Passes.h"
+
 
 //nova dialect includes
 #include "Compiler/Dialect/nova/NovaDialect.h"
@@ -99,6 +101,8 @@ pm.addPass(mlir::createTosaToTensorPass());
   pm.addPass(mlir::createSCFToControlFlowPass());
   //pm.addPass(createCanonicalizerPass()); 
   
+  pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+
   //Lower to LLVM dialect
   pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createArithToLLVMConversionPass());
