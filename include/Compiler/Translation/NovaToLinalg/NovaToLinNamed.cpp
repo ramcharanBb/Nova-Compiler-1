@@ -228,17 +228,18 @@ private:
       static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
                          Value init, OpBuilder &builder) {
 auto loc=op.getLoc();
-// mlir::ElementsAttr minAttr = op.getMax();
-// mlir::ElementsAttr maxAttr = op.getMax();
-// std::optional<double> minOpt = minAttr.getSplatValue<double>();
-// std::optional<double> maxOpt = maxAttr.getSplatValue<double>();
+//convert args[0] and args[1] to f32
 
-// Value minVal = builder.create<arith::ConstantOp>(loc, builder.getF64FloatAttr(*minOpt));
-// Value maxVal = builder.create<arith::ConstantOp>(loc, builder.getF64FloatAttr(*maxOpt));
-// Value seedVal = builder.create<arith::ConstantOp>(loc, builder.getI32IntegerAttr(42));
+//create a new value by finding a half in args[0] and args[1] .it has to be i32.
+    int32_t myFixedSeed = 454496; 
+    Value seedVal = builder.create<arith::ConstantOp>(
+        loc, 
+        builder.getI32Type(), 
+        builder.getI32IntegerAttr(myFixedSeed)
+    );
 auto linalgop = builder.create<linalg::FillRng2DOp>(
     loc,
-    ValueRange{args},
+    ValueRange{args[0],args[1],seedVal},
     ValueRange{init}
 );
 
