@@ -6,7 +6,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-
+#include "mlir/Dialect/Math/IR/Math.h"
 namespace mlir {
 namespace nova {
 
@@ -225,20 +225,17 @@ private:
 
     return linalgop.getResult(0);
   }
-      static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
+static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
                          Value init, OpBuilder &builder) {
 auto loc=op.getLoc();
-// mlir::ElementsAttr minAttr = op.getMax();
-// mlir::ElementsAttr maxAttr = op.getMax();
-// std::optional<double> minOpt = minAttr.getSplatValue<double>();
-// std::optional<double> maxOpt = maxAttr.getSplatValue<double>();
+// seed= (min+max)^max
+    Value sum = builder.create<arith::AddFOp>(loc, args[0], args[1]);
+    Value mySeed = builder.create<math::PowFOp>(loc, sum, args[1]);
+    Value seedVal = builder.create<arith::FPToSIOp>(loc, builder.getI32Type(), mySeed);
 
-// Value minVal = builder.create<arith::ConstantOp>(loc, builder.getF64FloatAttr(*minOpt));
-// Value maxVal = builder.create<arith::ConstantOp>(loc, builder.getF64FloatAttr(*maxOpt));
-// Value seedVal = builder.create<arith::ConstantOp>(loc, builder.getI32IntegerAttr(42));
 auto linalgop = builder.create<linalg::FillRng2DOp>(
     loc,
-    ValueRange{args},
+    ValueRange{args[0],args[1],seedVal},
     ValueRange{init}
 );
 

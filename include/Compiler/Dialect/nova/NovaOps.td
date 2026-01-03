@@ -25,6 +25,8 @@ def Nova_ElementType : AnyTypeOf<[
   F16, BF16, F32, F64,
   Complex<F64>,Complex<F32>]>;
 
+def Nova_Float:AnyTypeOf<[F16,F32,F64]>;
+
 def Nova_DeviceAttr : AttrDef<Nova_Dialect, "NovaDevice"> {
   let mnemonic = "device"; // This makes it #nova.device<...>
   
@@ -305,6 +307,34 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
   ];
   let extraClassDeclaration = [{
     /// Set a new value attribute for the constant op.
+    void setValue(::mlir::Attribute newValue) {
+      (*this)->setAttr("value", newValue);
+    }
+  }];
+}
+def Nova_ScalarConstOp : Nova_UnaryOp<"scalarconst", [Pure]> {
+  let summary = "Constant scalar operation";
+  let description = [{
+    Creates a constant tensor with a specified float value.
+    
+    Example:
+    ```mlir
+    %0 = nova.scalarconst {value = 1.0 : f32} : i32
+    ```
+  }];
+  
+  let arguments = (ins F64Attr:$value);
+  
+  let results = (outs AnyType:$output);
+  
+  let assemblyFormat = [{
+    attr-dict `:` type($output)
+  }];
+  
+  let builders = [
+    OpBuilder<(ins "::mlir::Attribute":$value, "Type":$resultType)>
+  ];
+  let extraClassDeclaration = [{
     void setValue(::mlir::Attribute newValue) {
       (*this)->setAttr("value", newValue);
     }
@@ -988,11 +1018,11 @@ def Nova_BceOp :Op<Nova_Dialect,"bce",[Pure,DeclareOpInterfaceMethods<InferTypeO
 }
 //==============================Weight initialier operations======================
 def Nova_Rndm2DOp:Op<Nova_Dialect,"rndm2d",[Pure]>{
-    let arguments = (ins F64:$min, F64:$max, I32:$seed);
+    let arguments = (ins F64:$min, F64:$max);
   let results = (outs Nova_Tensor:$result);
 
   let assemblyFormat = [{
-    $min `,` $max `,` $seed attr-dict `:` type($result) 
+    $min `,` $max attr-dict `:` type($result) 
   }];
 }
 /*
