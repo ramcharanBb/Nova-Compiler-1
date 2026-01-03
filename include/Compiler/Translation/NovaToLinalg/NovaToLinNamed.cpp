@@ -6,7 +6,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-
+#include "mlir/Dialect/Math/IR/Math.h"
 namespace mlir {
 namespace nova {
 
@@ -225,18 +225,14 @@ private:
 
     return linalgop.getResult(0);
   }
-      static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
+static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
                          Value init, OpBuilder &builder) {
 auto loc=op.getLoc();
-//convert args[0] and args[1] to f32
+// seed= (min+max)^max
+    Value sum = builder.create<arith::AddFOp>(loc, args[0], args[1]);
+    Value mySeed = builder.create<math::PowFOp>(loc, sum, args[1]);
+    Value seedVal = builder.create<arith::FPToSIOp>(loc, builder.getI32Type(), mySeed);
 
-//create a new value by finding a half in args[0] and args[1] .it has to be i32.
-    int32_t myFixedSeed = 454496; 
-    Value seedVal = builder.create<arith::ConstantOp>(
-        loc, 
-        builder.getI32Type(), 
-        builder.getI32IntegerAttr(myFixedSeed)
-    );
 auto linalgop = builder.create<linalg::FillRng2DOp>(
     loc,
     ValueRange{args[0],args[1],seedVal},
