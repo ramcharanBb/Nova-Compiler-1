@@ -1,5 +1,6 @@
 # Ignore build directory
 build/
+install/
 
 # Executable files
 final_benchmark
@@ -49,6 +50,6 @@ Thumbs.db
 *.run
 
 # # Shell scripts (added)
-# *.sh
+test/*.sh
 # *.bash
 # *.zsh

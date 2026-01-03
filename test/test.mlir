@@ -16,4 +16,3 @@ module{
   return %2 :tensor<4x3xf32>
   }
 }
-  
