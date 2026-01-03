@@ -77,7 +77,6 @@ namespace mlir
         {
             // Custom passes removed in favor of standard MLIR passes.
         }
-
         void createNovaGPUPipelines(mlir::OpPassManager &pm)
         {
             pm.addPass(mlir::createCanonicalizerPass());
@@ -88,8 +87,8 @@ namespace mlir
             pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalgNamed());
             pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalg());
             // This enables the 2:4 structured sparsity hardware path on your RTX 3060.
-            pm.addPass(mlir::createSparsificationPass());
-            pm.addPass(mlir::createSparseTensorConversionPass());
+            // pm.addPass(mlir::createSparsificationPass());
+            // pm.addPass(mlir::createSparseTensorConversionPass());
 
             // 3. TOSA TO ARITH/TENSOR/SCF
             pm.addPass(mlir::createTosaToArithPass());
@@ -103,12 +102,12 @@ namespace mlir
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createLinalgElementwiseOpFusionPass());
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createLinalgGeneralizeNamedOpsPass());
             
-            // 5. TILING & VECTORIZATION
-            pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertVectorToGPUPass(true));
+            //  TILING & VECTORIZATION
+            // pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertVectorToGPUPass(true));
             pm.addNestedPass<mlir::func::FuncOp>(mlir::nvgpu::createOptimizeSharedMemoryPass());
             pm.addPass(mlir::createCanonicalizerPass());
 
-            // 5. BUFFERIZATION & DEALLOCATION
+            //5. BUFFERIZATION & DEALLOCATION
             bufferization::OneShotBufferizePassOptions bufferizeOptions;
             bufferizeOptions.bufferizeFunctionBoundaries = true;
             bufferizeOptions.functionBoundaryTypeConversion = bufferization::LayoutMapOption::IdentityLayoutMap;
@@ -185,13 +184,11 @@ namespace mlir
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());
         }
-
         void registerNovaGPUPipelines()
         {
             PassPipelineRegistration<>("nova-gpu-pipeline",
                                        "Nova GPU Pipeline",
                                        createNovaGPUPipelines);
         }
-
     } // namespace nova
 } // namespace mlir

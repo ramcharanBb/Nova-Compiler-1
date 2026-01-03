@@ -1,0 +1,40 @@
+Calling main1 (Rank 2)...
+main1 returned!
+Base Ptr: 0x5b7599ea3e50
+Shape: (768x768)
+Data (Sample):
+[ [ 1.07492e+29 -3.47796e+29 -7.16769e+28 2.79613e+29 1.08589e+29 ... ][ 9.91178e+28 1.40931e+29 -9.30865e+28 -1.03251e+29 9.49305e+28 ... ][ -1.15053e+29 3.4067e+29 7.84065e+28 -2.74565e+29 -1.1612e+29 ... ][ -9.08061e+28 -1.75131e+29 8.80768e+28 1.30561e+29 -8.62636e+28 ... ][ 1.24269e+29 -3.22048e+29 -8.7492e+28 2.60685e+29 1.24669e+29 ... ]... ]
+
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
+'cuModuleUnload(module)' failed with '<unknown>'
