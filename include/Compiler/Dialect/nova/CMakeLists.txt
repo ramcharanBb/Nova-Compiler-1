@@ -5,6 +5,8 @@ mlir_tablegen(NovaOpsDialect.h.inc -gen-dialect-decls -dialect=nova)
 mlir_tablegen(NovaOpsDialect.cpp.inc -gen-dialect-defs -dialect=nova)
 mlir_tablegen(NovaOpsEnums.h.inc -gen-enum-decls)
 mlir_tablegen(NovaOpsEnums.cpp.inc -gen-enum-defs)
+mlir_tablegen(NovaOpsAttributes.h.inc -gen-attrdef-decls -attrdefs-dialect=nova)
+mlir_tablegen(NovaOpsAttributes.cpp.inc -gen-attrdef-defs -attrdefs-dialect=nova)
 set(LLVM_TARGET_DEFINITIONS NovaCanonicalizations.td)
 mlir_tablegen(NovaCanonicalization.inc -gen-rewriters)
 set(LLVM_TARGET_DEFINITIONS NovaOps.td)
@@ -21,5 +23,6 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/NovaOps.h.inc
         ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsDialect.h.inc
         ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsEnums.h.inc
+        ${CMAKE_CURRENT_BINARY_DIR}/NovaOpsAttributes.h.inc
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/Compiler/Dialect/nova"
 )

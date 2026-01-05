@@ -21,8 +21,8 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
                                                    RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
   mlir::Builder builder(context);
-  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
-  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  auto lhstensor = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<RankedTensorType>(operands[1].getType());
   Type lhselemtype = lhstensor.getElementType();
   Type rhselemType = rhstensor.getElementType();
   //if complex
@@ -35,19 +35,19 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     inferredReturnTypes.push_back(
         RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape()).value(),
-                                              ComplexType::get(builder.getF64Type())));
+                                              ComplexType::get(builder.getF64Type()), lhstensor.getEncoding()));
         return success();
         }
         inferredReturnTypes.push_back(
         RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape()).value(),
-                                              ComplexType::get(builder.getF32Type())));   
+                                              ComplexType::get(builder.getF32Type()), lhstensor.getEncoding()));   
         return success();                                     
     }
        return success();}
   // 1..finding shape
-   lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
-   rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+   lhstensor = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+   rhstensor = llvm::dyn_cast<RankedTensorType>(operands[1].getType());
    auto broadcastedShape = computeBroadcastShape(lhstensor.getShape(),
                                                 rhstensor.getShape());
   if (!broadcastedShape)
@@ -108,14 +108,15 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
       resultType = builder.getI16Type();
     }
     inferredReturnTypes.push_back(
-        RankedTensorType::get(*broadcastedShape, resultType));
+        RankedTensorType::get(*broadcastedShape, resultType, lhstensor.getEncoding()));
     return success();
   }
   else{
     inferredReturnTypes.push_back(
-        RankedTensorType::get(*broadcastedShape, lhselemtype));
+        RankedTensorType::get(*broadcastedShape, lhselemtype, lhstensor.getEncoding()));
         return success();
   }
+  auto encoding = lhstensor.getEncoding();
   auto resulType = builder.getF16Type();
   switch (resultbitwidth)
   {
@@ -126,7 +127,7 @@ static LogicalResult BinaryTypePromotionReturnType(MLIRContext *context, std::op
     resulType = builder.getF32Type();
   }
   inferredReturnTypes.push_back(
-      RankedTensorType::get(*broadcastedShape, resulType));
+      RankedTensorType::get(*broadcastedShape, resulType, encoding));
   return success();
 }
 // float promotion for result type
@@ -135,8 +136,8 @@ static LogicalResult BinaryFloatPromotionReturnType(MLIRContext *context, std::o
                                                     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
   mlir::Builder builder(context);
-  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
-  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  auto lhstensor = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<RankedTensorType>(operands[1].getType());
   Type lhselemtype = lhstensor.getElementType();
   Type rhselemType = rhstensor.getElementType();
   unsigned resultbitwidth = 0;
@@ -149,12 +150,12 @@ static LogicalResult BinaryFloatPromotionReturnType(MLIRContext *context, std::o
     inferredReturnTypes.push_back(
         RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
                             rhstensor.getShape()).value(),
-                            builder.getF64Type()));
+                            builder.getF64Type(), lhstensor.getEncoding()));
         return success();
         }
         inferredReturnTypes.push_back(
         RankedTensorType::get(computeBroadcastShape(lhstensor.getShape(),
-            rhstensor.getShape()).value(),builder.getF64Type()));                                      
+            rhstensor.getShape()).value(),builder.getF64Type(), lhstensor.getEncoding()));                                      
     
        return success();}}
   // 1.finding dtype
@@ -213,8 +214,9 @@ static LogicalResult BinaryFloatPromotionReturnType(MLIRContext *context, std::o
     return failure();
   }
 
+  auto encoding = lhstensor.getEncoding();
   inferredReturnTypes.push_back(
-      RankedTensorType::get(*broadcastedShape, resultType));
+      RankedTensorType::get(*broadcastedShape, resultType, encoding));
 
   return success();
 }
@@ -227,9 +229,9 @@ static LogicalResult unarycastingInferReturnTypes(
 {
 
   mlir::Builder builder(context);
-  auto opType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
   // get the element type
-  Type inputElementType = opType.getElementType();
+  Type inputElementType = inputType.getElementType();
   Type resultType = inputElementType;
   if (auto type = dyn_cast<mlir::IntegerType>(inputElementType))
   { // returns true if int or else null
@@ -247,7 +249,7 @@ static LogicalResult unarycastingInferReturnTypes(
       resultType = builder.getF16Type();
     }
   }
-  Type returnTensorType = RankedTensorType::get(opType.getShape(), resultType);
+  Type returnTensorType = RankedTensorType::get(inputType.getShape(), resultType, inputType.getEncoding());
   inferredReturnTypes.push_back(returnTensorType);
   return success();
 }
@@ -470,8 +472,7 @@ LogicalResult nova::SqrtOp::inferReturnTypes(
   // sqrt is unary
   if (operands.size() != 1)
     return failure();
-
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -491,7 +492,7 @@ LogicalResult nova::SqrtOp::inferReturnTypes(
     return failure();
   }
 
-  inferredTypes.push_back(inputType.clone(outElemTy));
+  inferredTypes.push_back(RankedTensorType::get(inputType.getShape(), outElemTy, inputType.getEncoding()));
   return success();
 }
 
@@ -621,8 +622,8 @@ LogicalResult AndOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 1), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -632,8 +633,8 @@ LogicalResult NotOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 1), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -663,8 +664,8 @@ LogicalResult OrOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 1), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -694,8 +695,8 @@ LogicalResult XorOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 1), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -704,17 +705,18 @@ LogicalResult AbsOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type elementType = llvm::dyn_cast<TensorType>(operands[0].getType()).getElementType();
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  auto shape = inputType.getShape();
+  Type elementType = inputType.getElementType();
   if(isa<FloatType>(elementType) || isa<IntegerType>(elementType)){
-    Type resultType = RankedTensorType::get(shape, elementType);
+    Type resultType = RankedTensorType::get(shape, elementType, inputType.getEncoding());
     inferredReturnTypes.push_back(resultType);
     return success();
   }
   else if(isa<ComplexType>(elementType)){
     auto ctype = llvm::dyn_cast<ComplexType>(elementType);
     Type  realtype = ctype.getElementType();
-    Type resultType = RankedTensorType::get(shape, realtype);
+    Type resultType = RankedTensorType::get(shape, realtype, inputType.getEncoding());
     inferredReturnTypes.push_back(resultType);
     return success();
   }
@@ -794,8 +796,8 @@ LogicalResult SignOp::inferReturnTypes(
 
   // The result type of sign is always int8
   // the shape is tensor of shape same as inputs
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 8));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 8), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -829,7 +831,7 @@ LogicalResult ArgmaxOp::inferReturnTypes(
     SmallVectorImpl<Type> &inferredReturnTypes)
 {
 
-  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -893,11 +895,11 @@ LogicalResult ArgmaxOp::inferReturnTypes(
 
   if (resultShape.empty() && !keepDims)
   {
-    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32)));
+    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32), inputType.getEncoding()));
   }
   else
   {
-    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32)));
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32), inputType.getEncoding()));
   }
 
   return success();
@@ -930,7 +932,7 @@ LogicalResult ArgMinOp::inferReturnTypes(
     SmallVectorImpl<Type> &inferredReturnTypes)
 {
 
-  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -994,11 +996,11 @@ LogicalResult ArgMinOp::inferReturnTypes(
 
   if (resultShape.empty() && !keepDims)
   {
-    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32)));
+    inferredReturnTypes.push_back(RankedTensorType::get({}, IntegerType::get(context, 32), inputType.getEncoding()));
   }
   else
   {
-    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32)));
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, IntegerType::get(context, 32), inputType.getEncoding()));
   }
 
   return success();
@@ -1024,8 +1026,8 @@ LogicalResult CompareOp::inferReturnTypes(
 
   // The result type of comparison is always a tensor of i1
   // the shape is tensor of shape same as inputs
-  auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-  Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 1));
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  Type resultType = RankedTensorType::get(inputType.getShape(), IntegerType::get(context, 1), inputType.getEncoding());
   inferredReturnTypes.push_back(resultType);
   return success();
 }
@@ -1039,7 +1041,7 @@ LogicalResult TransposeOp::inferReturnTypes(
   auto axes1 = attributes.get("axes1")? dyn_cast<IntegerAttr>(attributes.get("axes1")).getValue().getSExtValue():-1;
   auto axes2 =attributes.get("axes2")? dyn_cast<IntegerAttr>(attributes.get("axes2")).getValue().getSExtValue():-2;
   // handling negative indexing
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   auto shape = inputType.getShape();
   int64_t size =shape.size();
   if(size<1){
@@ -1065,7 +1067,7 @@ LogicalResult TransposeOp::inferReturnTypes(
       resshape.push_back(shape[i]);
     }
   }
-inferredReturnTypes.push_back(RankedTensorType::get(resshape,inputType.getElementType()));
+inferredReturnTypes.push_back(RankedTensorType::get(resshape,inputType.getElementType(), inputType.getEncoding()));
   return success();
 }
 
@@ -1123,8 +1125,8 @@ LogicalResult MatmulOp::inferReturnTypes(
   // function to find the result element type
 
   mlir::Builder builder(context);
-  auto lhstensor = llvm::dyn_cast<TensorType>(operands[0].getType());
-  auto rhstensor = llvm::dyn_cast<TensorType>(operands[1].getType());
+  auto lhstensor = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  auto rhstensor = llvm::dyn_cast<RankedTensorType>(operands[1].getType());
 
 
   // 2.fiding dtype
@@ -1236,7 +1238,7 @@ LogicalResult MatmulOp::inferReturnTypes(
       }
       return failure();
     }
-    inferredReturnTypes.push_back(RankedTensorType::get({}, resultType));
+    inferredReturnTypes.push_back(RankedTensorType::get({}, resultType, lhstensor.getEncoding()));
     return success();
   }
 
@@ -1282,7 +1284,7 @@ LogicalResult MatmulOp::inferReturnTypes(
   }
 
 
-  inferredReturnTypes.push_back(RankedTensorType::get(resultShape, resultType));
+  inferredReturnTypes.push_back(RankedTensorType::get(resultShape, resultType, lhstensor.getEncoding()));
   return success();
 }
 //---------------------------------reduce op----------------------------------------------------
@@ -1319,7 +1321,7 @@ LogicalResult ReduceOp::inferReturnTypes(
     SmallVectorImpl<Type> &inferredReturnTypes)
 {
 
-  auto inputType = llvm::dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -1387,11 +1389,11 @@ LogicalResult ReduceOp::inferReturnTypes(
 
   if (resultShape.empty() && !keepDims)
   {
-    inferredReturnTypes.push_back(RankedTensorType::get({}, elementType));
+    inferredReturnTypes.push_back(RankedTensorType::get({}, elementType, inputType.getEncoding()));
   }
   else
   {
-    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType));
+    inferredReturnTypes.push_back(RankedTensorType::get(resultShape, elementType, inputType.getEncoding()));
   }
 
   return success();
@@ -1586,7 +1588,7 @@ LogicalResult MaeOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -1605,7 +1607,7 @@ LogicalResult MaeOp::inferReturnTypes(
   else {
     return failure();
   }
-  auto outType = RankedTensorType::get({}, outElemTy);
+  auto outType = RankedTensorType::get(inputType.getShape(), outElemTy, inputType.getEncoding());
 
   inferredReturnTypes.push_back(outType);
   return success();
@@ -1616,7 +1618,7 @@ LogicalResult MseOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -1635,7 +1637,7 @@ LogicalResult MseOp::inferReturnTypes(
   else {
     return failure();
   }
-  auto outType = RankedTensorType::get({}, outElemTy);
+  auto outType = RankedTensorType::get(inputType.getShape(), outElemTy, inputType.getEncoding());
 
   inferredReturnTypes.push_back(outType);
   return success();
@@ -1646,7 +1648,7 @@ LogicalResult CceOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -1665,7 +1667,7 @@ LogicalResult CceOp::inferReturnTypes(
   else {
     return failure();
   }
-  auto outType = RankedTensorType::get({}, outElemTy);
+  auto outType = RankedTensorType::get(inputType.getShape(), outElemTy, inputType.getEncoding());
 
   inferredReturnTypes.push_back(outType);
   return success();
@@ -1676,7 +1678,7 @@ LogicalResult BceOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties,
     RegionRange regions, llvm::SmallVectorImpl<Type> &inferredReturnTypes)
 {
-  auto inputType = dyn_cast<TensorType>(operands[0].getType());
+  auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   if (!inputType)
     return failure();
 
@@ -1695,7 +1697,7 @@ LogicalResult BceOp::inferReturnTypes(
   else {
     return failure();
   }
-  auto outType = RankedTensorType::get({}, outElemTy);
+  auto outType = RankedTensorType::get(inputType.getShape(), outElemTy, inputType.getEncoding());
 
   inferredReturnTypes.push_back(outType);
   return success();

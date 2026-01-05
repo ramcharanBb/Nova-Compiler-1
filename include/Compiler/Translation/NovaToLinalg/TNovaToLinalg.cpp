@@ -888,11 +888,11 @@ namespace mlir
         auto loc = argminOp.getLoc();
         Value input = argminOp.getInput();
         auto inputTy = cast<ShapedType>(input.getType());
-        auto resultTy = cast<ShapedType>(argminOp.getOutput().getType());
+        auto resultTy = cast<RankedTensorType>(argminOp.getType());
         auto inElementTy = inputTy.getElementType();
         auto outElementTy = resultTy.getElementType();
         int axis = static_cast<int>(argminOp.getDimension().value());
-        auto resultMinTy = RankedTensorType::get(resultTy.getShape(), inElementTy);
+        auto resultMinTy = RankedTensorType::get(resultTy.getShape(), inElementTy, resultTy.getEncoding());
 
         if (!isa<IntegerType>(outElementTy))
           return rewriter.notifyMatchFailure(
@@ -911,7 +911,7 @@ namespace mlir
         // First fill the output buffer for the index.
         auto emptyTensorIdx = rewriter
                                   .create<tensor::EmptyOp>(loc, resultTy.getShape(),
-                                                           outElementTy, dynDims)
+                                                           outElementTy, dynDims, resultTy.getEncoding())
                                   .getResult();
         auto fillValueIdx = rewriter.create<arith::ConstantOp>(
             loc, rewriter.getIntegerAttr(outElementTy, 0));
@@ -924,7 +924,7 @@ namespace mlir
         // Second fill the output buffer for the running min.
         auto emptyTensorMin = rewriter
                                   .create<tensor::EmptyOp>(loc, resultTy.getShape(),
-                                                           inElementTy, dynDims)
+                                                           inElementTy, dynDims, resultTy.getEncoding())
                                   .getResult();
         auto fillValueMinAttr =
             createInitialValueForReduceOp(argminOp, inElementTy, rewriter);
@@ -1050,7 +1050,7 @@ namespace mlir
 
         // Create output tensor
         Value out = rewriter.create<tensor::EmptyOp>(
-            op.getLoc(), resultType.getShape(), resultDataType);
+            op.getLoc(), resultType.getShape(), resultDataType,resultType.getEncoding());
 
         // Prepare affine maps
         int64_t rank = resultType.getRank();

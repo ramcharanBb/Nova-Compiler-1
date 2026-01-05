@@ -23,6 +23,7 @@
 
 #include "Compiler/Dialect/nova/NovaDialect.h"
 #include "Compiler/Dialect/nova/NovaOps.h"
+#include "Compiler/Transforms/Passes.h"
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/Affine/AffineFullUnroll.h"
 #include "Compiler/Transforms/FuseMatmulBias.h"
@@ -53,8 +54,6 @@
 
 namespace mlir {
 namespace nova {
-#define GEN_PASS_REGISTRATION
-#include "Compiler/Transforms/Passes.h.inc"
 } 
 }
 
