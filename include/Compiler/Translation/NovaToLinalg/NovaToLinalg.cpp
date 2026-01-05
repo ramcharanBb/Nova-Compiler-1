@@ -47,7 +47,7 @@ namespace mlir
 
         // Create empty output tensor
         Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-            loc, resultType.getShape(), resultType.getElementType());
+            loc, resultType.getShape(), resultType.getElementType(), resultType.getEncoding());
 
         // Build affine map for input
         SmallVector<AffineExpr> inputExprs;
@@ -193,7 +193,7 @@ namespace mlir
 
       // Create empty output tensor
       Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-          loc, targetShape, inputType.getElementType());
+          loc, targetShape, inputType.getElementType(), inputType.getEncoding());
 
       SmallVector<AffineMap> indexingMaps = {inputMap, outputMap};
       SmallVector<utils::IteratorType> iteratorTypes(targetRank,
@@ -234,7 +234,7 @@ LogicalResult matchAndRewrite(
     // 1. Initialize Output (Zero Fill)
     Value zero = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getZeroAttr(resultType.getElementType()));
-    Value empty = rewriter.create<tensor::EmptyOp>(loc, shape, resultType.getElementType());
+    Value empty = rewriter.create<tensor::EmptyOp>(loc, shape, resultType.getElementType(), resultType.getEncoding());
     Value out = rewriter.create<linalg::FillOp>(loc, zero, empty).getResult(0);
 
     // 2. Define Iteration Space and Indexing Maps
@@ -399,7 +399,7 @@ LogicalResult matchAndRewrite(
           Value cst = rewriter.create<arith::ConstantOp>(
               op.getLoc(), rewriter.getZeroAttr(resultType.getElementType()));
           Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-              op.getLoc(), rank3_output_shape, resultType.getElementType());
+              op.getLoc(), rank3_output_shape, resultType.getElementType(), resultType.getEncoding());
           Value outputTensor = rewriter.create<linalg::FillOp>(
               op.getLoc(), cst, emptyTensor).getResult(0);
 
@@ -460,7 +460,8 @@ LogicalResult matchAndRewrite(
         Value emptyTensor = rewriter.create<tensor::EmptyOp>(
             op.getLoc(),
             resultType.getShape(),
-            resultType.getElementType());
+            resultType.getElementType(),
+            resultType.getEncoding());
         // create a fill op to initialize the output tensor to zero
         Value outputTensor = rewriter.create<linalg::FillOp>(
                                          op.getLoc(), cst, emptyTensor)
@@ -562,7 +563,7 @@ LogicalResult matchAndRewrite(
          
         Location loc = op.getLoc();
         auto permutedInit = rewriter.create<tensor::EmptyOp>(
-       loc, resultshape,llvm::cast<mlir::ShapedType>(op.getInput().getType()).getElementType()); 
+       loc, resultshape,llvm::cast<mlir::ShapedType>(op.getInput().getType()).getElementType(), resultType.getEncoding()); 
         rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, op.getInput(), permutedInit,resshape);
         return success();

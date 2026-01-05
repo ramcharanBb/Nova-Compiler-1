@@ -168,7 +168,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -204,7 +204,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -239,7 +239,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -279,7 +279,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -314,7 +314,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -350,7 +350,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -385,7 +385,7 @@ return builder->create<tosa::TransposeOp>(
           auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
           
           Value emptyTensor = builder->create<tensor::EmptyOp>(
-              loc, resultTensorType.getShape(), resultTensorType.getElementType());
+              loc, resultTensorType.getShape(), resultTensorType.getElementType(), resultTensorType.getEncoding());
           
           auto identityMap = builder->getMultiDimIdentityMap(resultTensorType.getRank());
           SmallVector<AffineMap> indexingMaps = {identityMap, identityMap};
@@ -466,15 +466,15 @@ return builder->create<tosa::TransposeOp>(
             if (isa<FloatType>(elementType))
             {
               divisor = builder->create<tosa::ConstOp>(op.getLoc(),
-                                                       RankedTensorType::get({}, elementType),
-                                                       DenseElementsAttr::get(RankedTensorType::get({}, elementType),
+                                                       RankedTensorType::get({}, elementType, cast<RankedTensorType>(temresult).getEncoding()),
+                                                       DenseElementsAttr::get(RankedTensorType::get({}, elementType, cast<RankedTensorType>(temresult).getEncoding()),
                                                                               builder->getFloatAttr(elementType, static_cast<double>(dimSize))));
             }
             else
             {
               divisor = builder->create<tosa::ConstOp>(op.getLoc(),
-                                                       RankedTensorType::get({}, elementType),
-                                                       DenseElementsAttr::get(RankedTensorType::get({}, elementType),
+                                                       RankedTensorType::get({}, elementType, cast<RankedTensorType>(temresult).getEncoding()),
+                                                       DenseElementsAttr::get(RankedTensorType::get({}, elementType, cast<RankedTensorType>(temresult).getEncoding()),
                                                                               builder->getIntegerAttr(elementType, dimSize)));
             }
           }
@@ -490,7 +490,7 @@ return builder->create<tosa::TransposeOp>(
                                                                 mlir::tosa::shapeType::get(builder->getContext(), rank),
                                                                 shapeAttr);
 
-          auto reshapedDivisorType = RankedTensorType::get(newShape, elementType);
+          auto reshapedDivisorType = RankedTensorType::get(newShape, elementType, resultType.getEncoding());
           auto reshapedDivisor = builder->create<tosa::ReshapeOp>(op.getLoc(), reshapedDivisorType, divisor, shapeConst);
 
           if (isa<FloatType>(elementType))
@@ -539,7 +539,7 @@ return builder->create<tosa::TransposeOp>(
           auto axisAttr = builder->getI32IntegerAttr(axisValue);
           // cretaing result tensor
           auto tempshape = shapeFindargmax(inputType, axisValue);
-          auto temptype = RankedTensorType::get(tempshape, resultdt.getElementType());
+          auto temptype = RankedTensorType::get(tempshape, resultdt.getElementType(), resultdt.getEncoding());
 
           // we have to replac the resulttype
           v = builder->create<tosa::ArgMaxOp>(op.getLoc(), temptype, v, axisAttr, nanmode);
@@ -550,7 +550,7 @@ return builder->create<tosa::TransposeOp>(
         {
           auto finalShape = shapeFindforargmax(v.getType());
           // Create the final result type
-          auto finalType = RankedTensorType::get({}, resultdt.getElementType());
+          auto finalType = RankedTensorType::get({}, resultdt.getElementType(), resultdt.getEncoding());
           auto shapeTensorType = RankedTensorType::get(
               {1}, builder->getIndexType());
           auto shapeAttr = DenseIntElementsAttr::get(
@@ -572,7 +572,7 @@ return builder->create<tosa::TransposeOp>(
           auto finalShape = resultdt.getShape();
 
           // Create the final result type
-          auto finalType = RankedTensorType::get(finalShape, resultdt.getElementType());
+          auto finalType = RankedTensorType::get(finalShape, resultdt.getElementType(), resultdt.getEncoding());
           auto shapeTensorType = RankedTensorType::get(
               {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
 
@@ -619,7 +619,7 @@ return builder->create<tosa::TransposeOp>(
           auto axisAttr = builder->getI32IntegerAttr(axisValue);
           // cretaing result tensor
           auto tempshape = shapeFindargmax(inputType, axisValue);
-          auto temptype = RankedTensorType::get(tempshape, resultdt.getElementType());
+          auto temptype = RankedTensorType::get(tempshape, resultdt.getElementType(), resultdt.getEncoding());
 
           // we have to replac the resulttype
           v = builder->create<tosa::ArgMaxOp>(op.getLoc(), temptype, v, axisAttr, nanmode);
@@ -630,7 +630,7 @@ return builder->create<tosa::TransposeOp>(
         {
           auto finalShape = shapeFindforargmax(v.getType());
           // Create the final result type
-          auto finalType = RankedTensorType::get({}, resultdt.getElementType());
+          auto finalType = RankedTensorType::get({}, resultdt.getElementType(), resultdt.getEncoding());
           auto shapeTensorType = RankedTensorType::get(
               {1}, builder->getIndexType());
           auto shapeAttr = DenseIntElementsAttr::get(
@@ -652,7 +652,7 @@ return builder->create<tosa::TransposeOp>(
           auto finalShape = resultdt.getShape();
 
           // Create the final result type
-          auto finalType = RankedTensorType::get(finalShape, resultdt.getElementType());
+          auto finalType = RankedTensorType::get(finalShape, resultdt.getElementType(), resultdt.getEncoding());
           auto shapeTensorType = RankedTensorType::get(
               {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
 
@@ -703,7 +703,7 @@ return builder->create<tosa::TransposeOp>(
             // getting temp shape
             auto tempshape = shapeFind(v.getType(), axisValue); // placeholder for now
             auto currType = cast<RankedTensorType>(v.getType());
-            auto tempresult = RankedTensorType::get(tempshape, currType.getElementType());
+            auto tempresult = RankedTensorType::get(tempshape, currType.getElementType(), currType.getEncoding());
             // getting the correct operation
             v = mappincasereduce(op, tempresult, v, axisAttr, builder, nanmode);
           }
@@ -717,7 +717,7 @@ return builder->create<tosa::TransposeOp>(
             auto axisAttr = builder->getI32IntegerAttr(axis);
             auto tempShape = shapeFind(v.getType(), axis);
             auto currType = cast<RankedTensorType>(v.getType());
-            auto tempresult = RankedTensorType::get(tempShape, currType.getElementType());
+            auto tempresult = RankedTensorType::get(tempShape, currType.getElementType(), currType.getEncoding());
             v = mappincasereduce(op, tempresult, v, axisAttr, builder, nanmode);
           }
         }
@@ -728,7 +728,7 @@ return builder->create<tosa::TransposeOp>(
           auto finalShape = result1Type.getShape();
 
           // Create the final result type
-          auto finalType = RankedTensorType::get(finalShape, currentType.getElementType());
+          auto finalType = RankedTensorType::get(finalShape, currentType.getElementType(), currentType.getEncoding());
           auto shapeTensorType = RankedTensorType::get(
               {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
 
@@ -754,18 +754,20 @@ return builder->create<tosa::TransposeOp>(
       {
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
         auto targetElemType = restensor.getElementType();
-        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
         auto newVType = mlir::RankedTensorType::get(
             v_type.getShape(), 
-            targetElemType
+            targetElemType,
+            v_type.getEncoding()
         );
         auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
-        v_type = cast<mlir::TensorType>(input[1].getType());
-        newVType = mlir::RankedTensorType::get(
-            v_type.getShape(), 
-            targetElemType
+        auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+        auto newWType = mlir::RankedTensorType::get(
+            w_type.getShape(), 
+            targetElemType,
+            w_type.getEncoding()
         );
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[1]);
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
        // loss= reduce_mean(abs(arg0-arg1))
         auto sub= builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
         auto abs=builder->create<tosa::AbsOp>(op.getLoc(),newVType,sub);
@@ -786,21 +788,23 @@ return builder->create<tosa::TransposeOp>(
         // loss= reduce_mean(square(arg0-arg1))
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
         auto targetElemType = restensor.getElementType();
-        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
         auto newVType = mlir::RankedTensorType::get(
             v_type.getShape(), 
-            targetElemType
+            targetElemType,
+            v_type.getEncoding()
         );
         auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
-        v_type = cast<mlir::TensorType>(input[1].getType());
-        newVType = mlir::RankedTensorType::get(
-            v_type.getShape(), 
-            targetElemType
+        auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+        auto newWType = mlir::RankedTensorType::get(
+            w_type.getShape(), 
+            targetElemType,
+            w_type.getEncoding()
         );
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[1]);
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
         auto sub= builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
 
-        mlir::RankedTensorType constType = mlir::RankedTensorType::get(v_type.getShape(), builder->getF32Type());
+        mlir::RankedTensorType constType = mlir::RankedTensorType::get(v_type.getShape(), builder->getF32Type(), v_type.getEncoding());
         mlir::DenseElementsAttr constAttr = mlir::DenseElementsAttr::get(constType, llvm::ArrayRef<float_t>(2));
         auto constTwo = builder->create<tosa::ConstOp>(op.getLoc(), constType, constAttr);
         auto abs=builder->create<tosa::PowOp>(op.getLoc(),newVType,sub,constTwo);
@@ -822,30 +826,32 @@ return builder->create<tosa::TransposeOp>(
         //basic casting logic 
                 auto restensor = dyn_cast<mlir::TensorType>(resultType);
         auto targetElemType = restensor.getElementType();
-        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
         auto newVType = mlir::RankedTensorType::get(
             v_type.getShape(), 
-            targetElemType
+            targetElemType,
+            v_type.getEncoding()
         );
         auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
-        v_type = cast<mlir::TensorType>(input[1].getType());
-        newVType = mlir::RankedTensorType::get(
-            v_type.getShape(), 
-            targetElemType
+        auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+        auto newWType = mlir::RankedTensorType::get(
+            w_type.getShape(), 
+            targetElemType,
+            w_type.getEncoding()
         );
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
+        auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType,input[1]);
         //step1:creating 1x10^-7  tensor constant
         auto epiAttr = DenseElementsAttr::get(newVType,builder->getF32FloatAttr(0.0000001f));
         Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
         //step2: creating one minus epsilon constant
         auto oneminusepiAttr = DenseElementsAttr::get(newVType,builder->getF32FloatAttr(1.0f));
-        Value ones= builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+        Value ones = builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
         Value  oneminusepi=builder->create<nova::SubOp>(op.getLoc(),ones,epi);
         //step3:creating compare op
         auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
        // Get the boolean element type (i1)
         auto boolType = builder->getI1Type();
-        auto compareResultType = mlir::RankedTensorType::get(inputShape, boolType);
+        auto compareResultType = mlir::RankedTensorType::get(inputShape, boolType, v_type.getEncoding());
         auto ck=nova::ComparisonType::LT;
         auto compare=builder->create<nova::CompareOp>(op.getLoc(),compareResultType,v,epi,ck);
         auto cp=builder->create<tosa::SelectOp>(op.getLoc(),newVType,compare,epi,v);
@@ -857,7 +863,7 @@ return builder->create<tosa::TransposeOp>(
         auto log=builder->create<nova::LogOp>(op.getLoc(),cp1);
         auto mul=builder->create<nova::MulOp>(op.getLoc(),log,w);
         //step6:create -1 constant tensor (scalar) 
-        auto constType = mlir::RankedTensorType::get({}, targetElemType); 
+        auto constType = mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding()); 
         auto minus1Attr = DenseElementsAttr::get(constType,builder->getF32FloatAttr(-1.0));
         Value minus1 = builder->create<tosa::ConstOp>(op.getLoc(), constType, minus1Attr);       
         //step 7 :reducesum(log result) along expect 0
@@ -872,7 +878,7 @@ return builder->create<tosa::TransposeOp>(
                // newShape.push_back(1);
 
         }
-        auto reducedResultType = mlir::RankedTensorType::get(newShape, targetElemType);
+        auto reducedResultType = mlir::RankedTensorType::get(newShape, targetElemType, v_type.getEncoding());
 
         nova::ReductionKind rk=nova::ReductionKind::SUM;
         auto reduceres= builder->create<nova::ReduceOp>(op.getLoc(),rk,mul,reducedResultType,false,dimensions);
@@ -889,18 +895,22 @@ return builder->create<tosa::TransposeOp>(
         //basic casting logic 
         auto restensor = dyn_cast<mlir::TensorType>(resultType);
         auto targetElemType = restensor.getElementType();
-        auto v_type = cast<mlir::TensorType>(input[0].getType());
+        auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
         auto newVType = mlir::RankedTensorType::get(
             v_type.getShape(), 
-            targetElemType
+            targetElemType,
+            v_type.getEncoding()
         );
-        auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
-        v_type = cast<mlir::TensorType>(input[1].getType());
-        newVType = mlir::RankedTensorType::get(
-            v_type.getShape(), 
-            targetElemType
+      //  auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
+       auto v=input[0];
+       auto w=input[1];
+        auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+        [[maybe_unused]] auto newWType = mlir::RankedTensorType::get(
+            w_type.getShape(), 
+            targetElemType,
+            w_type.getEncoding()
         );
-        auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
+        //auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
         //step1:creating 1x10^-7  tensor constant
         auto epiAttr = DenseElementsAttr::get(newVType,builder->getF32FloatAttr(0.0000001f));
         Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
@@ -912,7 +922,7 @@ return builder->create<tosa::TransposeOp>(
         auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
        // Get the boolean element type (i1)
         auto boolType = builder->getI1Type();
-        auto compareResultType = mlir::RankedTensorType::get(inputShape, boolType);
+        auto compareResultType = mlir::RankedTensorType::get(inputShape, boolType, v_type.getEncoding());
         auto ck=nova::ComparisonType::LT;
         auto compare=builder->create<nova::CompareOp>(op.getLoc(),compareResultType,v,epi,ck);
         auto cp=builder->create<tosa::SelectOp>(op.getLoc(),newVType,compare,epi,v);
@@ -925,7 +935,7 @@ return builder->create<tosa::TransposeOp>(
         auto term1=builder->create<nova::MulOp>(op.getLoc(),log,w);
   
         //step8:find term2=(ones-arg1)*log(ones-clipped predicts)
-         //ones-arg1
+        //ones-arg1
         auto termonelhs= builder->create<nova::SubOp>(op.getLoc(),ones,w); 
         auto termtworhs=builder->create<nova::SubOp>(op.getLoc(),ones,cp1);
         auto termtwologrhs=builder->create<nova::LogOp>(op.getLoc(),termtworhs);
@@ -944,7 +954,7 @@ return builder->create<tosa::TransposeOp>(
         auto reducemeanres=builder->create<nova::ReduceOp>(op.getLoc(),rk,sumterms,resultType,false,dimensions);
        
         //step11:create -1 constant tensor (scalar) 
-        auto constType = mlir::RankedTensorType::get({}, targetElemType); 
+        auto constType = mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding()); 
         auto minus1Attr = DenseElementsAttr::get(constType,builder->getF32FloatAttr(-1.0));
         Value minus1 = builder->create<tosa::ConstOp>(op.getLoc(), constType, minus1Attr);  
          //final step: mul reduce result and -1  
@@ -965,7 +975,7 @@ return builder->create<tosa::TransposeOp>(
         // if input is integer, cast to float and update type for following ops
         auto inputType = cast<RankedTensorType>(input.getType());
         if (isa<IntegerType>(inputType.getElementType())) {
-          auto newInputType = RankedTensorType::get(inputType.getShape(), rewriter.getF32Type());
+          auto newInputType = RankedTensorType::get(inputType.getShape(), rewriter.getF32Type(), inputType.getEncoding());
           input = rewriter.create<tosa::CastOp>(loc, newInputType, input);
           inputType = newInputType;
         }
@@ -1068,7 +1078,7 @@ return builder->create<tosa::TransposeOp>(
         dim.push_back(dimension);
 
         auto shape=NovaOpTosaOp::shapeFind(inputType,dimension);
-        auto tempresult = RankedTensorType::get(shape, restype.getElementType());
+        auto tempresult = RankedTensorType::get(shape, restype.getElementType(), restype.getEncoding());
         //creating cast - only if element types differ
         if (inputType.getElementType() != restype.getElementType()) {
           input=rewriter.create<tosa::CastOp>(loc,restype,input);

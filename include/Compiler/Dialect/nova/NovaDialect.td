@@ -16,7 +16,7 @@ def Nova_Dialect : Dialect {
   }];
   let cppNamespace = "::mlir::nova";
   let useDefaultTypePrinterParser = 0;
-  let useDefaultAttributePrinterParser = 0;
+  let useDefaultAttributePrinterParser = 1;
 
   let usePropertiesForAttributes = 0;
 }

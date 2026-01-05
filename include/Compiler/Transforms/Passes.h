@@ -10,6 +10,8 @@
 namespace mlir {
 namespace nova {
 
+std::unique_ptr<Pass> createConvertMemRefToGpuPass();
+
 #define GEN_PASS_REGISTRATION
 #include "Compiler/Transforms/Passes.h.inc"
 

@@ -31,23 +31,23 @@ def Nova_DeviceAttr : AttrDef<Nova_Dialect, "NovaDevice"> {
   let mnemonic = "device"; // This makes it #nova.device<...>
   
   // Parameters for the attribute (e.g., "gpu", "cpu")
-  let parameters = (ins "StringRef":$value);
+  let parameters = (ins "StringAttr":$value);
 
   let assemblyFormat = "`<` $value `>`";
 }
-def Nova_Tensor:TensorOf<[Nova_ElementType]>;
-/*def Nova_Tensor : Type<
+
+def Nova_Tensor : Type<
   And<[
     RankedTensorOf<[Nova_ElementType]>.predicate,
     CPred<[{ 
       [&]() {
         if (auto rankedTy = llvm::dyn_cast<::mlir::RankedTensorType>($_self)) {
-          return ::llvm::isa_and_nonnull<::mlir::nova::NovaDeviceAttr>(rankedTy.getEncoding());
+          return rankedTy.getEncoding() && llvm::isa<::mlir::nova::NovaDeviceAttr>(rankedTy.getEncoding());
         }
         return false;
       }()
     }]>
-  ]>, "a ranked tensor with a nova device encoding">;*/
+  ]>, "a ranked tensor with a nova device encoding">;
   
   // operations start
 //enum 

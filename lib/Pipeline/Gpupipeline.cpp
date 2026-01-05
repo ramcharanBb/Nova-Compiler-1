@@ -111,11 +111,13 @@ namespace mlir
             bufferization::OneShotBufferizePassOptions bufferizeOptions;
             bufferizeOptions.bufferizeFunctionBoundaries = true;
             bufferizeOptions.functionBoundaryTypeConversion = bufferization::LayoutMapOption::IdentityLayoutMap;
+            bufferizeOptions.useEncodingForMemorySpace = true;
             pm.addPass(mlir::bufferization::createOneShotBufferizePass(bufferizeOptions));
 
             bufferization::BufferDeallocationPipelineOptions deallocationOptions;
             bufferization::buildBufferDeallocationPipeline(pm, deallocationOptions);
             pm.addPass(mlir::createConvertBufferizationToMemRefPass());
+            pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createConvertMemRefToGpuPass());
             pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
             // 6. LINALG TO PARALLEL LOOPS

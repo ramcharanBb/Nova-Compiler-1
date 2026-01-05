@@ -54,11 +54,11 @@ static Value rmappingtosa(nova::SubOp op, Type resultType, ValueRange input, OpB
 static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input, OpBuilder *builder)
 {
 
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = cast<mlir::RankedTensorType>(resultType);
     Value v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     Value w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
     Value init = builder->create<tensor::EmptyOp>(
-        op.getLoc(), restensor.getShape(), restensor.getElementType());
+        op.getLoc(), restensor.getShape(), restensor.getElementType(), restensor.getEncoding());
 
     return builder->create<linalg::MulOp>(op.getLoc(), resultType,ValueRange{v,w},ValueRange{init}).getResult(0);
 }
