@@ -1135,11 +1135,33 @@ return builder->create<tosa::TransposeOp>(
       LogicalResult matchAndRewrite(ScalarConstOp op, OpAdaptor adaptor,
                                     ConversionPatternRewriter &rewriter) const override
       {
-        auto floatType = dyn_cast<mlir::FloatType>(op.getType()) ;
-        auto valueAttr = mlir::FloatAttr::get(floatType, op.getValue());
-        auto result=rewriter.create<arith::ConstantOp>(op.getLoc(),op.getType(),valueAttr);
-        rewriter.replaceOp(op, result);
-        return success();
+        Type resultType = op.getType();
+        double val = op.getValue().convertToDouble();
+
+        // Case 1: Scalar Float result
+        if (auto floatType = dyn_cast<mlir::FloatType>(resultType)) {
+          auto valueAttr = mlir::FloatAttr::get(floatType, val);
+          rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, valueAttr);
+          return success();
+        }
+
+        // Case 2: Tensor result (Splay constant)
+        if (auto tensorType = dyn_cast<mlir::RankedTensorType>(resultType)) {
+          Type elemType = tensorType.getElementType();
+          if (auto floatElemType = dyn_cast<mlir::FloatType>(elemType)) {
+             // Create a splat dense elements attribute
+             DenseElementsAttr valueAttr;
+             if (floatElemType.isF32()) {
+               valueAttr = DenseElementsAttr::get(tensorType, static_cast<float>(val));
+             } else {
+               valueAttr = DenseElementsAttr::get(tensorType, val);
+             }
+             rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, resultType, valueAttr);
+             return success();
+          }
+        }
+
+        return rewriter.notifyMatchFailure(op, "Unsupported result type for ScalarConstOp");
       }
     };
 
@@ -1461,7 +1483,7 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
           ConversionTarget target(getContext());
 
           target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
-          target.addLegalOp<nova::ConstantOp>();
+          target.addIllegalOp<nova::ConstantOp>();
           target.addIllegalOp<nova::ReluOp>();
           target.addIllegalOp<nova::ExpOp>();
           target.addIllegalOp<nova::LogOp>();

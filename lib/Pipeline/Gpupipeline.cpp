@@ -126,7 +126,7 @@ namespace mlir
             pm.addPass(mlir::createParallelLoopTilingPass({16, 16, 16}));
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createParallelLoopFusionPass());
             pm.addPass(mlir::createCanonicalizerPass());
-            //8. GPU MAPPING
+            //8. GPU MAPPINGcreateParallelLoopFusionPass
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());
             pm.addPass(mlir::createGpuMapParallelLoopsPass());
