@@ -30,6 +30,7 @@
 #include "Compiler/Dialect/nova/NovaOps.h"
 
 //optimization passes includes
+#include "Compiler/Transforms/Passes.h"
 #include "Compiler/Transforms/CleanupPass.h"
 #include "Compiler/Transforms/Affine/AffineFullUnroll.h"
 #include "Compiler/Transforms/FastmathFlag.h"
@@ -49,8 +50,6 @@ using namespace mlir;
 
 namespace mlir {
 namespace nova {
-#define GEN_PASS_REGISTRATION
-#include "Compiler/Transforms/Passes.h.inc"
 }} // namespace mlir::nova
 
 void mlir::nova::createNovaPipelines(OpPassManager &pm) {
@@ -82,6 +81,8 @@ pm.addPass(mlir::createTosaToTensorPass());
   bufferizeOptions.bufferizeFunctionBoundaries = true;        // mention that we want to bufferize function boundaries ie parameters and returns
   bufferizeOptions.functionBoundaryTypeConversion=            //keep the layout map as identity for function boundaries
                 bufferization::LayoutMapOption::IdentityLayoutMap;      // this will ensure that the function signatures remain unchanged
+  
+  bufferizeOptions.useEncodingForMemorySpace = true;
 
   // so when we bufferize a function that takes a tensor as input, it will be converted to a memref with an identity layout map
   pm.addPass(mlir::bufferization::createOneShotBufferizePass(bufferizeOptions));
@@ -93,7 +94,9 @@ pm.addPass(mlir::createTosaToTensorPass());
   //Convert remaining bufferization ops to memref
   pm.addPass(mlir::createConvertBufferizationToMemRefPass());
   
-
+  // Convert memref with space 1 to gpu.alloc
+  pm.addNestedPass<func::FuncOp>(mlir::nova::createConvertMemRefToGpuPass());
+  
   // Lower Linalg to loops (SCF dialect)
   pm.addPass(mlir::createConvertLinalgToLoopsPass());
   
