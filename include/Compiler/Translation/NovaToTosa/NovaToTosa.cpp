@@ -1127,43 +1127,7 @@ return builder->create<tosa::TransposeOp>(
 
       }
     };
-    //pattern for convert nova.scalarconst to arith.const
-    struct NovaScalarConstOpLowering : public OpConversionPattern<ScalarConstOp>
-    {
-      using OpConversionPattern<ScalarConstOp>::OpConversionPattern;
-
-      LogicalResult matchAndRewrite(ScalarConstOp op, OpAdaptor adaptor,
-                                    ConversionPatternRewriter &rewriter) const override
-      {
-        Type resultType = op.getType();
-        double val = op.getValue().convertToDouble();
-
-        // Case 1: Scalar Float result
-        if (auto floatType = dyn_cast<mlir::FloatType>(resultType)) {
-          auto valueAttr = mlir::FloatAttr::get(floatType, val);
-          rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, resultType, valueAttr);
-          return success();
-        }
-
-        // Case 2: Tensor result (Splay constant)
-        if (auto tensorType = dyn_cast<mlir::RankedTensorType>(resultType)) {
-          Type elemType = tensorType.getElementType();
-          if (auto floatElemType = dyn_cast<mlir::FloatType>(elemType)) {
-             // Create a splat dense elements attribute
-             DenseElementsAttr valueAttr;
-             if (floatElemType.isF32()) {
-               valueAttr = DenseElementsAttr::get(tensorType, static_cast<float>(val));
-             } else {
-               valueAttr = DenseElementsAttr::get(tensorType, val);
-             }
-             rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, resultType, valueAttr);
-             return success();
-          }
-        }
-
-        return rewriter.notifyMatchFailure(op, "Unsupported result type for ScalarConstOp");
-      }
-    };
+  
 
     // //-----------------------------------------------------------------------------
     // // Matmul lowering
@@ -1515,7 +1479,6 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
           target.addIllegalOp<nova::BceOp>();
           //target.addIllegalOp<nova::MatmulOp>();
           target.addIllegalOp<nova::AddOp>();
-          target.addIllegalOp<nova::ScalarConstOp>();
           target.addIllegalOp<nova::MaeOp>();
           target.addIllegalOp<nova::TransposeOp>();
           target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
@@ -1546,7 +1509,6 @@ struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::Constan
                    NovaGeluOpLowering,
                    NovaSoftmaxLoweringPattern,
                 //   NovaMatmulOpTosaLowering,
-                   NovaScalarConstOpLowering,
                    NovaConstantToTosaConstPattern,
                    NovaToTosaLoweringTemplate<nova::MaxOp>,
                    NovaToTosaLoweringTemplate<nova::LogOp>,

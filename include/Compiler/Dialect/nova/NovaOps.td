@@ -312,34 +312,7 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
     }
   }];
 }
-def Nova_ScalarConstOp : Nova_UnaryOp<"scalarconst", [Pure]> {
-  let summary = "Constant scalar operation";
-  let description = [{
-    Creates a constant tensor with a specified float value.
-    
-    Example:
-    ```mlir
-    %0 = nova.scalarconst {value = 1.0 : f32} : i32
-    ```
-  }];
-  
-  let arguments = (ins F64Attr:$value);
-  
-  let results = (outs AnyType:$output);
-  
-  let assemblyFormat = [{
-    attr-dict `:` type($output)
-  }];
-  
-  let builders = [
-    OpBuilder<(ins "::mlir::Attribute":$value, "Type":$resultType)>
-  ];
-  let extraClassDeclaration = [{
-    void setValue(::mlir::Attribute newValue) {
-      (*this)->setAttr("value", newValue);
-    }
-  }];
-}
+
 
 //-----------ARITHMETIC OPERATIONS-----------------------------
 
