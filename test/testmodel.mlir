@@ -1,156 +1,152 @@
 module {
-  // Helper Function: Embedding Lookup
-  func.func @embedding_lookup(%indices: tensor<8x128xi32>, %W: tensor<1000x768xf32>) -> tensor<8x128x768xf32> {
+  // === Global Persistent State (Weights and Biases) ===
+  ml_program.global private mutable @WQ(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+  ml_program.global private mutable @WK(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+  ml_program.global private mutable @WV(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+  ml_program.global private mutable @WO(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+  ml_program.global private mutable @W1(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+  ml_program.global private mutable @W2(dense<0.0> : tensor<768x768xf32>) : tensor<768x768xf32>
+
+  ml_program.global private mutable @bQ(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+  ml_program.global private mutable @bK(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+  ml_program.global private mutable @bV(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+  ml_program.global private mutable @bO(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+  ml_program.global private mutable @b1(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+  ml_program.global private mutable @b2(dense<0.0> : tensor<768xf32>) : tensor<768xf32>
+
+  // === Main Entry Point ===
+
+  func.func @main1() -> tensor<768x768xf32> {
     %c0 = arith.constant 0 : index
     %c1 = arith.constant 1 : index
-    %c8 = arith.constant 8 : index
-    %c128 = arith.constant 128 : index
-    %c768 = arith.constant 768 : index
+    %c5 = arith.constant 5 : index
     
-    // Initialize output tensor
-    %init = tensor.empty() : tensor<8x128x768xf32>
-    
-    // Use linalg.generic for embedding lookup
-    %output = linalg.generic {
-      indexing_maps = [
-        affine_map<(d0, d1, d2) -> (d0, d1)>,  // indices
-        affine_map<(d0, d1, d2) -> (d0, d1, d2)>  // output
-      ],
-      iterator_types = ["parallel", "parallel", "parallel"]
-    } ins(%indices : tensor<8x128xi32>) outs(%init : tensor<8x128x768xf32>) {
-    ^bb0(%idx: i32, %out: f32):
-      %idx_cast = arith.index_cast %idx : i32 to index
-      %d2 = linalg.index 2 : index
-      %val = tensor.extract %W[%idx_cast, %d2] : tensor<1000x768xf32>
-      linalg.yield %val : f32
-    } -> tensor<8x128x768xf32>
-    
-    return %output : tensor<8x128x768xf32>
-  }
+    %min = arith.constant -0.1 : f64
+    %max = arith.constant 0.1 : f64
+    %seed = arith.constant 42 : i32
 
-  // Helper Function: Matrix Multiplication with nova
-  func.func @matmul(%A: tensor<8x128x768xf32>, %B: tensor<768x768xf32>) -> tensor<8x128x768xf32> {
-    // Reshape for matmul: collapse batch dimension
-    %A_2d = tensor.collapse_shape %A [[0, 1], [2]] : tensor<8x128x768xf32> into tensor<1024x768xf32>
-    
-    // nova.matmul doesn't use explicit output buffer in its syntax based on NovaOps.td
-    %result_2d = nova.matmul %A_2d, %B : tensor<1024x768xf32>, tensor<768x768xf32>
-    
-    %result = tensor.expand_shape %result_2d [[0, 1], [2]] output_shape [8, 128, 768] : tensor<1024x768xf32> into tensor<8x128x768xf32>
-    return %result : tensor<8x128x768xf32>
-  }
+    %scale = nova.constant {value = dense<0.036> : tensor<1xf32>} : tensor<1xf32>
+    %lr = nova.constant {value = dense<0.01> : tensor<1xf32>} : tensor<1xf32>
 
-  // Helper Function: Multi-Head Self-Attention
-  func.func @self_attention(%X: tensor<8x128x768xf32>, %W_Q: tensor<768x768xf32>, %W_K: tensor<768x768xf32>, %W_V: tensor<768x768xf32>, %W_O: tensor<768x768xf32>) -> tensor<8x128x768xf32> {
+    // 1. Initial Weights Setup
+    %WQ_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @WQ = %WQ_0 : tensor<768x768xf32>
     
-    // Linear projections: Q = X * W_Q, K = X * W_K, V = X * W_V
-    %Q = func.call @matmul(%X, %W_Q) : (tensor<8x128x768xf32>, tensor<768x768xf32>) -> tensor<8x128x768xf32>
-    %K = func.call @matmul(%X, %W_K) : (tensor<8x128x768xf32>, tensor<768x768xf32>) -> tensor<8x128x768xf32>
-    %V = func.call @matmul(%X, %W_V) : (tensor<8x128x768xf32>, tensor<768x768xf32>) -> tensor<8x128x768xf32>
+    %WK_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @WK = %WK_0 : tensor<768x768xf32>
     
-    // Compute attention scores: Q * K^T
-    // Reshape for batched matmul: (8, 128, 768) x (8, 768, 128) -> (8, 128, 128)
+    %WV_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @WV = %WV_0 : tensor<768x768xf32>
     
-    // Transpose K: swap dim 1 and 2.
-    %K_transposed = nova.transpose %K axes1=1 axes2=2 : tensor<8x128x768xf32>
+    %WO_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @WO = %WO_0 : tensor<768x768xf32>
     
-    // Batched matmul for attention scores
-    // Assuming nova.matmul supports batched matmul (broadcasting or implicit batching)
-    // Q: [8, 128, 768], K_T: [8, 768, 128] -> [8, 128, 128]
-    // Note: The result type of transpose might need to be inferred or explicit. 
-    // If nova.transpose returns tensor<8x768x128xf32>, then we use that.
+    %W1_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @W1 = %W1_0 : tensor<768x768xf32>
     
-    %scores_raw = nova.matmul %Q, %K_transposed : tensor<8x128x768xf32>, tensor<8x768x128xf32>
-    
-    // Scale scores
-    // Create constant tensor for scale
-    %scale_tensor = nova.constant {value = dense<27.7128> : tensor<1xf32>} : tensor<1xf32>
-    
-    // Broadcast division
-    %scores = nova.div %scores_raw, %scale_tensor : tensor<8x128x128xf32>, tensor<1xf32>
-    
-    // Softmax would go here
-    // %softmax_scores = nova.softmax %scores dimension=2 : tensor<8x128x128xf32>
-    // For now keeping it as is (skipped in original) or adding it if requested. 
-    // The user said "what ever u can convert". I'll add nova.softmax.
-    %softmax_scores = nova.softmax %scores dimension=2 : tensor<8x128x128xf32>
-    
-    // Attention: scores * V
-    // scores: [8, 128, 128], V: [8, 128, 768] -> [8, 128, 768]
-    %attn = nova.matmul %softmax_scores, %V : tensor<8x128x128xf32>, tensor<8x128x768xf32>
-    
-    // Final projection: attn * W_O
-    %output = func.call @matmul(%attn, %W_O) : (tensor<8x128x768xf32>, tensor<768x768xf32>) -> tensor<8x128x768xf32>
-    
-    return %output : tensor<8x128x768xf32>
-  }
+    %W2_0 = nova.rndm2d %min, %max, %seed : tensor<768x768xf32>
+    ml_program.global_store @W2 = %W2_0 : tensor<768x768xf32>
 
-  // Helper Function: Feed-Forward Network
-  func.func @feed_forward(%X: tensor<8x128x768xf32>, %W1: tensor<768x3072xf32>, %W2: tensor<3072x768xf32>) -> tensor<8x128x768xf32> {
-    
-    // First linear layer: X * W1
-    %X_2d = tensor.collapse_shape %X [[0, 1], [2]] : tensor<8x128x768xf32> into tensor<1024x768xf32>
-    
-    %hidden_2d = nova.matmul %X_2d, %W1 : tensor<1024x768xf32>, tensor<768x3072xf32>
-    
-    %hidden = tensor.expand_shape %hidden_2d [[0, 1], [2]] output_shape [8, 128, 3072] : tensor<1024x3072xf32> into tensor<8x128x3072xf32>
-    
-    // ReLU activation
-    %relu = nova.relu %hidden : tensor<8x128x3072xf32>
-    
-    // Second linear layer: relu * W2
-    %relu_2d = tensor.collapse_shape %relu [[0, 1], [2]] : tensor<8x128x3072xf32> into tensor<1024x3072xf32>
-    
-    %output_2d = nova.matmul %relu_2d, %W2 : tensor<1024x3072xf32>, tensor<3072x768xf32>
-    
-    %output = tensor.expand_shape %output_2d [[0, 1], [2]] output_shape [8, 128, 768] : tensor<1024x768xf32> into tensor<8x128x768xf32>
-    
-    return %output : tensor<8x128x768xf32>
-  }
+    // 2. Training Loop
+    scf.for %iv = %c0 to %c5 step %c1 {
+      
+      // 2.1. Batch Preparation (Batch 1, Seq 128, Hidden 768)
+      %X = nova.rndm2d %min, %max, %seed : tensor<128x768xf32>
+      %labels = nova.rndm2d %min, %max, %seed : tensor<128x768xf32>
+      
+      // Load current parameters
+      %WQ_cur = ml_program.global_load @WQ : tensor<768x768xf32>
+      %WK_cur = ml_program.global_load @WK : tensor<768x768xf32>
+      %WV_cur = ml_program.global_load @WV : tensor<768x768xf32>
+      %WO_cur = ml_program.global_load @WO : tensor<768x768xf32>
+      %W1_cur = ml_program.global_load @W1 : tensor<768x768xf32>
+      %W2_cur = ml_program.global_load @W2 : tensor<768x768xf32>
 
-  // Transformer Block
-  func.func @transformer_block(%X: tensor<8x128x768xf32>, %W_Q: tensor<768x768xf32>, %W_K: tensor<768x768xf32>, %W_V: tensor<768x768xf32>, %W_O: tensor<768x768xf32>, %W_ff1: tensor<768x3072xf32>, %W_ff2: tensor<3072x768xf32>) -> tensor<8x128x768xf32> {
-    // Self-attention sub-layer
-    %attn = func.call @self_attention(%X, %W_Q, %W_K, %W_V, %W_O) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>) -> tensor<8x128x768xf32>
-    
-    // Residual connection: X + attn
-    %res1 = nova.add %X, %attn : tensor<8x128x768xf32>, tensor<8x128x768xf32>
-    
-    // Feed-forward sub-layer
-    %ff = func.call @feed_forward(%res1, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    
-    // Residual connection: res1 + ff
-    %output = nova.add %res1, %ff : tensor<8x128x768xf32>, tensor<8x128x768xf32>
-    
-    return %output : tensor<8x128x768xf32>
-  }
+      %bQ_cur = ml_program.global_load @bQ : tensor<768xf32>
+      %bK_cur = ml_program.global_load @bK : tensor<768xf32>
+      %bV_cur = ml_program.global_load @bV : tensor<768xf32>
+      %bO_cur = ml_program.global_load @bO : tensor<768xf32>
+      %b1_cur = ml_program.global_load @b1 : tensor<768xf32>
+      %b2_cur = ml_program.global_load @b2 : tensor<768xf32>
 
-  // Main Function
-  func.func @main() -> i32 {
-    %c0 = arith.constant 0 : i32
-    %f0 = arith.constant 0.0 : f32
+      // 2.2. Forward Pass
+      %res_Q_2d = nova.matmul %X, %WQ_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %Q = nova.add %res_Q_2d, %bQ_cur : tensor<128x768xf32>, tensor<768xf32>
+
+      %res_K_2d = nova.matmul %X, %WK_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %K = nova.add %res_K_2d, %bK_cur : tensor<128x768xf32>, tensor<768xf32>
+
+      %res_V_2d = nova.matmul %X, %WV_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %V = nova.add %res_V_2d, %bV_cur : tensor<128x768xf32>, tensor<768xf32>
+
+      %KT = nova.transpose %K axes1=0 axes2=1 : tensor<128x768xf32>
+      %scores_raw = nova.matmul %Q, %KT : tensor<128x768xf32>, tensor<768x128xf32>
+      %scores_scaled = nova.mul %scores_raw, %scale : tensor<128x128xf32>, tensor<1xf32>
+      %probs = nova.softmax %scores_scaled dimension=1 : tensor<128x128xf32>
+      
+      %context = nova.matmul %probs, %V : tensor<128x128xf32>, tensor<128x768xf32>
+
+      %res_O_2d = nova.matmul %context, %WO_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %attn_out = nova.add %res_O_2d, %bO_cur : tensor<128x768xf32>, tensor<768xf32>
+
+      %x_attn = nova.add %X, %attn_out : tensor<128x768xf32>, tensor<128x768xf32>
+
+      %res_FF1_2d = nova.matmul %x_attn, %W1_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %FF1 = nova.add %res_FF1_2d, %b1_cur : tensor<128x768xf32>, tensor<768xf32>
+      %FF1_act = nova.relu %FF1 : tensor<128x768xf32>
+
+      %res_FF2_2d = nova.matmul %FF1_act, %W2_cur : tensor<128x768xf32>, tensor<768x768xf32>
+      %preds = nova.add %res_FF2_2d, %b2_cur : tensor<128x768xf32>, tensor<768xf32>
+
+      // 2.3. Backward Pass
+      %diff = nova.sub %preds, %labels : tensor<128x768xf32>, tensor<128x768xf32>
+      %X_T = nova.transpose %X axes1=0 axes2=1 : tensor<128x768xf32>
+      
+      %dW_common = nova.matmul %X_T, %diff : tensor<768x128xf32>, tensor<128x768xf32>
+      %db_common = nova.reduce<sum> %diff dimension = [0] : tensor<128x768xf32>
+      
+      // 2.4. Batch Update
+      %grad_scaled = nova.mul %dW_common, %lr : tensor<768x768xf32>, tensor<1xf32>
+      %db_scaled = nova.mul %db_common, %lr : tensor<768xf32>, tensor<1xf32>
+
+      %WQ_next = nova.sub %WQ_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @WQ = %WQ_next : tensor<768x768xf32>
+      
+      %WK_next = nova.sub %WK_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @WK = %WK_next : tensor<768x768xf32>
+
+      %WV_next = nova.sub %WV_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @WV = %WV_next : tensor<768x768xf32>
+
+      %WO_next = nova.sub %WO_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @WO = %WO_next : tensor<768x768xf32>
+
+      %W1_next = nova.sub %W1_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @W1 = %W1_next : tensor<768x768xf32>
+
+      %W2_next = nova.sub %W2_cur, %grad_scaled : tensor<768x768xf32>, tensor<768x768xf32>
+      ml_program.global_store @W2 = %W2_next : tensor<768x768xf32>
+      
+      %bQ_next = nova.sub %bQ_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @bQ = %bQ_next : tensor<768xf32>
+
+      %bK_next = nova.sub %bK_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @bK = %bK_next : tensor<768xf32>
+
+      %bV_next = nova.sub %bV_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @bV = %bV_next : tensor<768xf32>
+
+      %bO_next = nova.sub %bO_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @bO = %bO_next : tensor<768xf32>
+
+      %b1_next = nova.sub %b1_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @b1 = %b1_next : tensor<768xf32>
+
+      %b2_next = nova.sub %b2_cur, %db_scaled : tensor<768xf32>, tensor<768xf32>
+      ml_program.global_store @b2 = %b2_next : tensor<768xf32>
+    }
     
-    // Initialize inputs and weights as tensors
-    %inputIdx = tensor.empty() : tensor<8x128xi32>
-    %embedding_weight = tensor.empty() : tensor<1000x768xf32>
-    %W_Q = tensor.empty() : tensor<768x768xf32>
-    %W_K = tensor.empty() : tensor<768x768xf32>
-    %W_V = tensor.empty() : tensor<768x768xf32>
-    %W_O = tensor.empty() : tensor<768x768xf32>
-    %W_ff1 = tensor.empty() : tensor<768x3072xf32>
-    %W_ff2 = tensor.empty() : tensor<3072x768xf32>
-    
-    // Embedding lookup
-    %emb = func.call @embedding_lookup(%inputIdx, %embedding_weight) : (tensor<8x128xi32>, tensor<1000x768xf32>) -> tensor<8x128x768xf32>
-    
-    // Forward through 6 transformer layers
-    %layer0 = func.call @transformer_block(%emb, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    %layer1 = func.call @transformer_block(%layer0, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    %layer2 = func.call @transformer_block(%layer1, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    %layer3 = func.call @transformer_block(%layer2, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    %layer4 = func.call @transformer_block(%layer3, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    %layer5 = func.call @transformer_block(%layer4, %W_Q, %W_K, %W_V, %W_O, %W_ff1, %W_ff2) : (tensor<8x128x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x768xf32>, tensor<768x3072xf32>, tensor<3072x768xf32>) -> tensor<8x128x768xf32>
-    
-    return %c0 : i32
+    %final_WQ = ml_program.global_load @WQ : tensor<768x768xf32>
+    return %final_WQ : tensor<768x768xf32>
   }
 }

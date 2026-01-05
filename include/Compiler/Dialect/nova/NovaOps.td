@@ -5,6 +5,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
@@ -1025,7 +1026,6 @@ def Nova_Rndm2DOp:Op<Nova_Dialect,"rndm2d",[Pure]>{
   }];
 }
 /*
-
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";
   let description = [{
