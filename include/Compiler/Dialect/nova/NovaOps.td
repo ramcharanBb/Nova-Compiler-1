@@ -65,6 +65,7 @@ def Nova_Comparisonenum:I32EnumAttr<"ComparisonType","How operands should be com
 //comparison defintion
 def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComplexOperands
   ]> {
+  let hasCanonicalizer = 1;
   let summary="compare operation";
 
   let description="elementwise comparison";
@@ -91,6 +92,25 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComple
   }];
 
 }
+def Nova_ToDeviceOp : Op<Nova_Dialect, "to_device", [Pure]> {
+  let hasCanonicalizer = 1;
+  let summary = "Explicitly copy a tensor to a different device";
+  let description = [{
+    The `nova.to_device` operation copies a tensor from one device to another.
+    The source and destination device attributes must be different.
+    Example:
+    ```mlir
+    %0 = nova.to_device %input : tensor<8x8xf32, #nova.device<"0">> -> tensor<8x8xf32, #nova.device<"1">>
+    ```
+  }];
+
+  let arguments = (ins Nova_Tensor:$input);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+}
+
 def Nova_EmptyTensorOp : Op<Nova_Dialect,"empty_tensor", []> {
   let summary = "allocate an uninitialized tensor with a specified shape";
   let description = [{
@@ -121,6 +141,7 @@ def Nova_ReductionKind : I32EnumAttr<"ReductionKind",
   let cppNamespace = "::mlir::nova";
 }
 def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface,NoComplexOperands]> {
+  let hasCanonicalizer = 1;
   let summary = "Generic reduction operation";
   let description = [{
     Performs reduction operation across specified dimensions of a tensor.
@@ -175,7 +196,8 @@ def Nova_ReduceOp : Op<Nova_Dialect,"reduce", [Pure,InferTypeOpInterface,NoCompl
 
 //---------------------------ARGMAX-------------------------------
 
-def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]>{
+def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]> {
+  let hasCanonicalizer = 1;
     let arguments = (ins 
     Nova_Tensor:$input,
     OptionalAttr<I64Attr>:$dimension,
@@ -207,7 +229,8 @@ def Nova_ArgmaxOp:Op <Nova_Dialect,"argmax",[Pure,InferTypeOpInterface]>{
 
 //------------------------------ARGMIN----------------------------------------
 
-def Nova_ArgMinOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]>{
+def Nova_ArgMinOp:Op <Nova_Dialect,"argmin",[Pure,InferTypeOpInterface]> {
+  let hasCanonicalizer = 1;
     let arguments = (ins 
     Nova_Tensor:$input,
     OptionalAttr<I32Attr>:$dimension,
@@ -274,6 +297,7 @@ def Nova_BroadcastInDimOp : Op<Nova_Dialect, "broadcast_in_dim", [
 //------------------------------------
 class Nova_UnaryOp<string mnemonic, list<Trait> traits = []> :
     Op<Nova_Dialect,mnemonic, traits # [Pure]> {
+  let hasCanonicalizer = 1;
   let arguments = (ins Nova_Tensor:$input);
   let results = (outs Nova_Tensor:$output);
   
@@ -928,6 +952,7 @@ def Nova_NotOp : Nova_UnaryOp<"not", [Commutative,InferTypeOpInterface,NoComplex
 }
 
 def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>,NoComplexOperands]> {
+  let hasCanonicalizer = 1;
   let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
   let hasVerifier=1;  
@@ -939,6 +964,7 @@ def Nova_MatmulOp : Op<Nova_Dialect,"matmul", [Pure, DeclareOpInterfaceMethods<I
 //-------------------------------------ACTIVATION FUNCTIONS-------------------------------------
 
 def Nova_SigmoidOp : Op<Nova_Dialect,"sigmoid", [Pure, SameOperandsAndResultType,NoComplexOperands]> {
+  let hasCanonicalizer = 1;
   let arguments = (ins Nova_Tensor:$lhs);
   let results = (outs Nova_Tensor:$result);
 
@@ -947,6 +973,7 @@ def Nova_SigmoidOp : Op<Nova_Dialect,"sigmoid", [Pure, SameOperandsAndResultType
 }
 def Nova_GeluOp : Op<Nova_Dialect,"gelu", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>,
                 NoComplexOperands]> {
+  let hasCanonicalizer = 1;
   let arguments = (ins Nova_Tensor:$lhs);
   let results = (outs Nova_Tensor:$result);
    
@@ -955,6 +982,7 @@ def Nova_GeluOp : Op<Nova_Dialect,"gelu", [Pure, DeclareOpInterfaceMethods<Infer
   
 }
 def Nova_SoftmaxOp:Op<Nova_Dialect,"softmax",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>,NoComplexOperands]>{
+  let hasCanonicalizer = 1;
   let arguments=(ins Nova_Tensor:$input,
    OptionalAttr<I32Attr>:$dimension);
   let results =(outs Nova_Tensor:$result);
@@ -972,6 +1000,7 @@ def Nova_SoftmaxOp:Op<Nova_Dialect,"softmax",[Pure,DeclareOpInterfaceMethods<Inf
 
 
 def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let hasCanonicalizer = 1;
   let arguments = (ins Nova_Tensor:$input,
       DefaultValuedAttr<I32Attr, "-1">:$axes1,
     DefaultValuedAttr<I32Attr, "-2">:$axes2);
@@ -984,6 +1013,7 @@ def Nova_TransposeOp : Op<Nova_Dialect,"transpose",[Pure, DeclareOpInterfaceMeth
 }
 //=========LOSSES===================
 def Nova_MaeOp :Op<Nova_Dialect,"mae",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let hasCanonicalizer = 1;
     let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
 
@@ -992,6 +1022,7 @@ def Nova_MaeOp :Op<Nova_Dialect,"mae",[Pure,DeclareOpInterfaceMethods<InferTypeO
   }];
 }
 def Nova_MseOp :Op<Nova_Dialect,"mse",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let hasCanonicalizer = 1;
     let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
 
@@ -1000,6 +1031,7 @@ def Nova_MseOp :Op<Nova_Dialect,"mse",[Pure,DeclareOpInterfaceMethods<InferTypeO
   }];
 }
 def Nova_CceOp :Op<Nova_Dialect,"cce",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let hasCanonicalizer = 1;
     let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
 
@@ -1008,6 +1040,7 @@ def Nova_CceOp :Op<Nova_Dialect,"cce",[Pure,DeclareOpInterfaceMethods<InferTypeO
   }];
 }
 def Nova_BceOp :Op<Nova_Dialect,"bce",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let hasCanonicalizer = 1;
     let arguments = (ins Nova_Tensor:$lhs, Nova_Tensor:$rhs);
   let results = (outs Nova_Tensor:$result);
 
