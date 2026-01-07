@@ -5,6 +5,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/BuiltinTypeInterfaces.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 include "NovaDialect.td"
 include "mlir/IR/EnumAttr.td"
@@ -335,34 +336,7 @@ def Nova_ConstantOp : Nova_UnaryOp<"constant", [Pure]> {
     }
   }];
 }
-def Nova_ScalarConstOp : Nova_UnaryOp<"scalarconst", [Pure]> {
-  let summary = "Constant scalar operation";
-  let description = [{
-    Creates a constant tensor with a specified float value.
-    
-    Example:
-    ```mlir
-    %0 = nova.scalarconst {value = 1.0 : f32} : i32
-    ```
-  }];
-  
-  let arguments = (ins F64Attr:$value);
-  
-  let results = (outs AnyType:$output);
-  
-  let assemblyFormat = [{
-    attr-dict `:` type($output)
-  }];
-  
-  let builders = [
-    OpBuilder<(ins "::mlir::Attribute":$value, "Type":$resultType)>
-  ];
-  let extraClassDeclaration = [{
-    void setValue(::mlir::Attribute newValue) {
-      (*this)->setAttr("value", newValue);
-    }
-  }];
-}
+
 
 //-----------ARITHMETIC OPERATIONS-----------------------------
 
@@ -1058,7 +1032,6 @@ def Nova_Rndm2DOp:Op<Nova_Dialect,"rndm2d",[Pure]>{
   }];
 }
 /*
-
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";
   let description = [{

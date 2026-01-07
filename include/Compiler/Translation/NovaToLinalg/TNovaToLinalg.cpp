@@ -831,14 +831,14 @@ namespace mlir
           mlir::Value greaterThanZero = builder->create<mlir::arith::CmpFOp>(
               loc, mlir::arith::CmpFPredicate::OGT, input, zeroF);
 
-          mlir::Value signPos = builder->create<mlir::arith::ExtUIOp>(loc, resultType, greaterThanZero);
+          mlir::Value signPos = builder->create<mlir::arith::UIToFPOp>(loc, resultType, greaterThanZero);
 
           mlir::Value lessThanZero = builder->create<mlir::arith::CmpFOp>(
               loc, mlir::arith::CmpFPredicate::OLT, input, zeroF);
 
-          mlir::Value signNeg = builder->create<mlir::arith::ExtUIOp>(loc, resultType, lessThanZero);
+          mlir::Value signNeg = builder->create<mlir::arith::UIToFPOp>(loc, resultType, lessThanZero);
 
-          return builder->create<mlir::arith::SubIOp>(loc, signPos, signNeg);
+          return builder->create<mlir::arith::SubFOp>(loc, signPos, signNeg);
         }
         else if (auto intType = llvm::dyn_cast<mlir::IntegerType>(input.getType()))
         {
@@ -847,13 +847,12 @@ namespace mlir
               loc, intType, builder->getIntegerAttr(intType, 0));
           mlir::Value greaterThanZero = builder->create<mlir::arith::CmpIOp>(
               loc, mlir::arith::CmpIPredicate::sgt, input, zero);
-
-          mlir::Value signPos = builder->create<mlir::arith::ExtUIOp>(loc, resultType, greaterThanZero);
+          mlir::Value signPos = builder->create<mlir::arith::UIToFPOp>(loc, resultType, greaterThanZero);
           mlir::Value lessThanZero = builder->create<mlir::arith::CmpIOp>(
               loc, mlir::arith::CmpIPredicate::slt, input, zero);
-          mlir::Value signNeg = builder->create<mlir::arith::ExtUIOp>(loc, resultType, lessThanZero);
+          mlir::Value signNeg = builder->create<mlir::arith::UIToFPOp>(loc, resultType, lessThanZero);
 
-          return builder->create<mlir::arith::SubIOp>(loc, signPos, signNeg);
+          return builder->create<mlir::arith::SubFOp>(loc, signPos, signNeg);
         }
         return nullptr;
       }

@@ -813,31 +813,36 @@ LogicalResult CompareOp::verify() {
 
   return success();
 }
-LogicalResult
-SignOp::inferReturnTypes(MLIRContext *context, std::optional<Location> location,
-                         ValueRange operands, DictionaryAttr attributes,
-                         OpaqueProperties properties, RegionRange regions,
-                         SmallVectorImpl<Type> &inferredReturnTypes) {
+// LogicalResult SignOp::inferReturnTypes(
+//     MLIRContext *context,
+//     std::optional<Location> location,
+//     ValueRange operands,
+//     DictionaryAttr attributes,
+//     OpaqueProperties properties,
+//     RegionRange regions,
+//     SmallVectorImpl<Type> &inferredReturnTypes)
+// {
 
-  if (operands.size() != 1) {
-    if (location) {
-      mlir::emitError(*location) << "sign requires exactly 1 operands";
-    }
-    return failure();
-  }
+//   if (operands.size() != 1)
+//   {
+//     if (location)
+//     {
+//       mlir::emitError(*location) << "sign requires exactly 1 operands";
+//     }
+//     return failure();
+//   }
 
-  // The result type of sign is always int8
-  // the shape is tensor of shape same as inputs
-  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
-  Type resultType = RankedTensorType::get(
-      inputType.getShape(), IntegerType::get(context, 8),
-      getUnaryResultEncoding(inputType.getEncoding(), context));
-  inferredReturnTypes.push_back(resultType);
-  return success();
-}
-void ArgmaxOp::build(OpBuilder &builder, OperationState &state, Value input,
-                     int64_t dimension, bool keepdims, bool ignore_nan,
-                     Type resultType) {
+//   // The result type of sign is always int8
+//   // the shape is tensor of shape same as inputs
+//   auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
+//   Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 8));
+//   inferredReturnTypes.push_back(resultType);
+//   return success();
+// }
+void ArgmaxOp::build(OpBuilder &builder, OperationState &state,
+                     Value input, int64_t dimension,
+                     bool keepdims, bool ignore_nan, Type resultType)
+{
   state.addOperands(input);
   if (!dimension) {
     state.addAttribute("dimension",
@@ -1515,6 +1520,7 @@ INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AcoshOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(AtanhOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(GeluOp);
 INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SoftmaxOp);
+INFER_RETURN_TYPE_COMPONENTS_FROM_OPERANDS(SignOp);
 
 void SoftmaxOp::build(OpBuilder &builder, OperationState &state,
                       ReductionKind kind, Value input, Type resultType,

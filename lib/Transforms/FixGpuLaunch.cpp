@@ -205,8 +205,59 @@ class FixGpuLaunchPass : public PassWrapper<FixGpuLaunchPass, OperationPass<Modu
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FixGpuLaunchPass)
 
+    void fixGlobalDtors(ModuleOp module) {
+        auto globalDtors = module.lookupSymbol<LLVM::GlobalOp>("llvm.global_dtors");
+        if (!globalDtors) {
+            return;
+        }
+
+        auto initialValue = globalDtors.getValue();
+        if (!initialValue) {
+            return;
+        }
+
+        auto arrayAttr = llvm::dyn_cast<ArrayAttr>(*initialValue);
+        if (!arrayAttr) {
+            return;
+        }
+
+        OpBuilder builder(module.getContext());
+        SmallVector<Attribute, 4> newElements;
+        bool changed = false;
+
+        for (auto attr : arrayAttr) {
+            auto structAttr = llvm::dyn_cast<ArrayAttr>(attr);
+            if (structAttr && structAttr.size() >= 2) {
+                std::string attrStr;
+                {
+                    llvm::raw_string_ostream os(attrStr);
+                    structAttr[1].print(os);
+                }
+                
+                if (attrStr.find("unload") != std::string::npos) {
+                    SmallVector<Attribute, 3> fields;
+                    fields.push_back(builder.getI32IntegerAttr(65535));
+                    fields.push_back(structAttr[1]);
+                    if (structAttr.size() > 2)
+                        fields.push_back(structAttr[2]);
+                    
+                    newElements.push_back(builder.getArrayAttr(fields));
+                    changed = true;
+                    continue;
+                }
+            }
+            newElements.push_back(attr);
+        }
+
+        if (changed) {
+            globalDtors.setValueAttr(builder.getArrayAttr(newElements));
+        }
+    }
+
   void runOnOperation() override {
     ModuleOp module = getOperation();
+    
+    fixGlobalDtors(module);
     
     if (auto existing = SymbolTable::lookupSymbolIn(module, "dealloc_helper")) {
         if (!llvm::isa<LLVM::LLVMFuncOp>(existing)) {
