@@ -52,7 +52,7 @@ def FuseMatmulBias : Pass<"fuse-matmul-bias", "func::FuncOp"> {
     let constructor = "::mlir::nova::createFuseMatmulBiasPass()";
 }
 
-def ConvertMemRefToGpu : Pass<"convert-memref-to-gpu", "func::FuncOp"> {
+def ConvertMemRefToGpu : Pass<"convert-memref-to-gpu", "ModuleOp"> {
     let summary = "Convert memref.alloc/dealloc with memory space 1 to gpu.alloc/dealloc";
     let description = [{
         Converts memref.alloc and memref.dealloc operations that have memory space 1
