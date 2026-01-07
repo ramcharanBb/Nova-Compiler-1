@@ -151,30 +151,30 @@ namespace mlir
             pm.addPass(mlir::createGpuNVVMAttachTarget(nvvmTargetOptions));
 
             // Lowering INSIDE the GPU Module (Fixes 'index' in kernels)
-            auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
-            gpuPm.addPass(mlir::createLowerAffinePass());
-            gpuPm.addPass(mlir::createSCFToControlFlowPass());
-            mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
-            gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
-            gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
-            gpuPm.addPass(mlir::createArithToLLVMConversionPass());
-            gpuPm.addPass(mlir::createConvertMathToLLVMPass());
-            gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
+        //     auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
+        //     gpuPm.addPass(mlir::createLowerAffinePass());
+        //     gpuPm.addPass(mlir::createSCFToControlFlowPass());
+        //     mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
+        //     gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
+        //     gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
+        //     gpuPm.addPass(mlir::createArithToLLVMConversionPass());
+        //     gpuPm.addPass(mlir::createConvertMathToLLVMPass());
+        //     gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
 
-            // Binary generation (Stage 2)
-            mlir::GpuModuleToBinaryPassOptions binaryOptions;
-            binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
-            pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
+        //     // Binary generation (Stage 2)
+        //     mlir::GpuModuleToBinaryPassOptions binaryOptions;
+        //     binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
+        //     pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
 
-            // 10. FINAL HOST LOWERING (Fixes gpu.launch_func and index errors)
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
-            pm.addPass(mlir::createConvertIndexToLLVMPass());
-            pm.addPass(mlir::createArithToLLVMConversionPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
+        //     // 10. FINAL HOST LOWERING (Fixes gpu.launch_func and index errors)
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
+        //     pm.addPass(mlir::createConvertIndexToLLVMPass());
+        //     pm.addPass(mlir::createArithToLLVMConversionPass());
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
 
             // MAIN LOWERING: gpu.launch_func -> runtime calls
             mlir::GpuToLLVMConversionPassOptions hostOptions;
