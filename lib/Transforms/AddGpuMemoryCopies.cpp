@@ -7,6 +7,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/MapVector.h"
 
 using namespace mlir;
 
@@ -17,6 +18,15 @@ struct AddGpuMemoryCopiesPass
     : public PassWrapper<AddGpuMemoryCopiesPass, OperationPass<func::FuncOp>> {
 
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(AddGpuMemoryCopiesPass)
+
+  // Helper to check if a memory space is device (1)
+  bool isDeviceMemorySpace(Attribute memorySpace) {
+    if (!memorySpace) return false;
+    if (auto intAttr = llvm::dyn_cast<IntegerAttr>(memorySpace)) {
+      return intAttr.getInt() == 1;
+    }
+    return false;
+  }
 
   // Helper to check if a value involves Read-Only memory (Constant Global)
   bool isReadOnly(Value val, SymbolTable &symbolTable) {
@@ -85,65 +95,141 @@ struct AddGpuMemoryCopiesPass
     ModuleOp module = func->getParentOfType<ModuleOp>();
     SymbolTable symbolTable(module);
 
-    func.walk([&](gpu::LaunchFuncOp launchOp) {
-      OpBuilder builder(launchOp);
-      Location loc = launchOp.getLoc();
-      
-      SmallVector<Value, 4> newOperands;
-      SmallVector<std::pair<Value, Value>, 4> copyBackPairs; // {DeviceSrc, HostDst}
-      SmallVector<Value, 4> toDealloc;
-
-      for (auto operand : launchOp.getKernelOperands()) {
-        Type type = operand.getType();
-        if (auto memRefType = llvm::dyn_cast<MemRefType>(type)) {
-           // Dynamic dim handling
-           SmallVector<Value> dynamicSizes;
-           for (int i = 0; i < memRefType.getRank(); ++i) {
-             if (memRefType.isDynamicDim(i)) {
-                 Value idx = builder.create<arith::ConstantIndexOp>(loc, i);
-                 Value dim = builder.create<memref::DimOp>(loc, operand, idx);
-                 dynamicSizes.push_back(dim);
-             }
-           }
-
-           // Create gpu.alloc
-           auto allocOp = builder.create<gpu::AllocOp>(loc, memRefType, ValueRange{}, dynamicSizes, ValueRange{});
-           Value deviceMem = allocOp.getResult(0);
-           
-           // Copy Host to Device
-           builder.create<gpu::MemcpyOp>(loc, Type(), ValueRange{}, deviceMem, operand);
-           
-           newOperands.push_back(deviceMem);
-           
-           // Only copy back if NOT Read-Only
-           if (!isReadOnly(operand, symbolTable)) {
-               copyBackPairs.push_back({deviceMem, operand});
-           }
-           
-           toDealloc.push_back(deviceMem);
-        } else {
-           newOperands.push_back(operand);
+    // 1. Promote internal allocations to device space if used in GPU regions
+    SmallVector<Value, 4> promotedAllocsToDealloc;
+    func.walk([&](memref::AllocOp allocOp) {
+      bool usedInGpu = false;
+      for (auto &use : allocOp.getResult().getUses()) {
+        Operation *owner = use.getOwner();
+        if (isa<gpu::LaunchOp>(owner) || owner->getParentOfType<gpu::LaunchOp>()) {
+          usedInGpu = true;
+          break;
         }
       }
-      
-      // Replace operands using MutableOperandRange to preserve grid/block args
-      launchOp.getKernelOperandsMutable().assign(newOperands);
-                            
-      // Post-launch insertion
-      builder.setInsertionPointAfter(launchOp);
-      
-      // Copy Device -> Host
-      for (auto pair : copyBackPairs) {
-          Value deviceSrc = pair.first;
-          Value hostDst = pair.second;
-          builder.create<gpu::MemcpyOp>(loc, Type(), ValueRange{}, hostDst, deviceSrc);
-      }
-      
-      // Dealloc
-      for (auto val : toDealloc) {
-          builder.create<gpu::DeallocOp>(loc, ValueRange{}, val);
+      if (usedInGpu) {
+        MemRefType oldType = allocOp.getType();
+        if (!isDeviceMemorySpace(oldType.getMemorySpace())) {
+          MemRefType newType = MemRefType::get(oldType.getShape(), oldType.getElementType(),
+                                               oldType.getLayout(), IntegerAttr::get(IntegerType::get(func.getContext(), 32), 1));
+          allocOp.getResult().setType(newType);
+
+          // Check if it already has a dealloc
+          bool hasDealloc = false;
+          for (auto &use : allocOp.getResult().getUses()) {
+            if (isa<memref::DeallocOp>(use.getOwner()) || isa<gpu::DeallocOp>(use.getOwner())) {
+              hasDealloc = true;
+              break;
+            }
+          }
+          if (!hasDealloc) {
+            promotedAllocsToDealloc.push_back(allocOp.getResult());
+          }
+        }
       }
     });
+
+    // 2. Find all host memrefs used in GPU regions that need shadowing
+    llvm::MapVector<Value, Value> hostToDeviceMap;
+    func.walk([&](gpu::LaunchOp launchOp) {
+      launchOp.getRegion().walk([&](Operation *op) {
+        for (unsigned i = 0; i < op->getNumOperands(); ++i) {
+          OpOperand &operand = op->getOpOperand(i);
+          Value val = operand.get();
+          if (auto memRefType = llvm::dyn_cast<MemRefType>(val.getType())) {
+            if (isDeviceMemorySpace(memRefType.getMemorySpace()))
+              continue;
+            
+            // It's a host memref used in GPU. Check if it's defined outside this launch.
+            if (launchOp.getRegion().isAncestor(val.getParentRegion()))
+              continue;
+
+            if (hostToDeviceMap.count(val)) {
+              operand.set(hostToDeviceMap[val]);
+            } else {
+              // Create shadow
+              OpBuilder builder(func.getBody().front().getTerminator());
+              if (auto defOp = val.getDefiningOp()) {
+                builder.setInsertionPointAfter(defOp);
+              } else {
+                builder.setInsertionPointToStart(&func.getBody().front());
+              }
+              
+              Location loc = val.getLoc();
+              MemRefType hostType = llvm::cast<MemRefType>(val.getType());
+              MemRefType deviceType = MemRefType::get(hostType.getShape(), hostType.getElementType(),
+                                                      hostType.getLayout(), builder.getI32IntegerAttr(1));
+
+              // Dynamic dim handling
+              SmallVector<Value> dynamicSizes;
+              for (int i = 0; i < hostType.getRank(); ++i) {
+                if (hostType.isDynamicDim(i)) {
+                  Value idx = builder.create<arith::ConstantIndexOp>(loc, i);
+                  Value dim = builder.create<memref::DimOp>(loc, val, idx);
+                  dynamicSizes.push_back(dim);
+                }
+              }
+
+              auto allocOp = builder.create<gpu::AllocOp>(loc, deviceType, ValueRange{}, dynamicSizes, ValueRange{});
+              Value deviceMem = allocOp.getResult(0);
+              hostToDeviceMap[val] = deviceMem;
+              
+              // Copy Host to Device
+              builder.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{}, deviceMem, val);
+              
+              operand.set(deviceMem);
+            }
+          }
+        }
+      });
+    });
+
+    func.walk([&](func::ReturnOp returnOp) {
+      OpBuilder builder(returnOp);
+      for (unsigned i = 0; i < returnOp->getNumOperands(); ++i) {
+        OpOperand &operand = returnOp->getOpOperand(i);
+        Value val = operand.get();
+        if (auto memRefType = llvm::dyn_cast<MemRefType>(val.getType())) {
+          // If we are returning a device memref but the function expects host
+          if (isDeviceMemorySpace(memRefType.getMemorySpace())) {
+            // Check if the function signature actually expects a host memref
+            auto expectedType = func.getResultTypes()[i];
+            if (auto expectedMemRef = llvm::dyn_cast<MemRefType>(expectedType)) {
+              if (isDeviceMemorySpace(expectedMemRef.getMemorySpace())) {
+                // Function expects device memory, no need to copy back to host
+                continue;
+              }
+            }
+
+            // This happens for promoted internal allocs
+            Location loc = returnOp.getLoc();
+            MemRefType hostType = MemRefType::get(memRefType.getShape(), memRefType.getElementType(),
+                                                  memRefType.getLayout(), Attribute());
+            
+            // Create host alloc
+            auto hostAlloc = builder.create<memref::AllocOp>(loc, hostType);
+            builder.create<gpu::MemcpyOp>(loc, TypeRange{}, ValueRange{}, hostAlloc, val);
+            operand.set(hostAlloc);
+          } else if (hostToDeviceMap.count(val)) {
+            // Returning a host memref that has a device shadow
+            Value deviceMem = hostToDeviceMap[val];
+            builder.create<gpu::MemcpyOp>(returnOp.getLoc(), TypeRange{}, ValueRange{}, val, deviceMem);
+          }
+        }
+      }
+    });
+
+    // 4. Deallocate shadows and promoted allocs at the end of the function
+    if (!hostToDeviceMap.empty() || !promotedAllocsToDealloc.empty()) {
+      func.walk([&](func::ReturnOp returnOp) {
+        OpBuilder builder(returnOp);
+        for (auto pair : hostToDeviceMap) {
+          builder.create<gpu::DeallocOp>(returnOp.getLoc(), ValueRange{}, pair.second);
+        }
+        for (auto val : promotedAllocsToDealloc) {
+          builder.create<gpu::DeallocOp>(returnOp.getLoc(), ValueRange{}, val);
+        }
+      });
+    }
   }
 
   StringRef getArgument() const final { return "add-gpu-memory-copies"; }
