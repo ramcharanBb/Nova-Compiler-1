@@ -1,13 +1,13 @@
 module {
-  func.func @activation_ops(%arg0: tensor<1x8xf32>) -> tensor<1x8xf32> {
+  func.func @activation_ops(%arg0: tensor<1x8xf32, #nova.device<"1">>) -> tensor<1x8xf32, #nova.device<"1">> {
 
     // ACTIVATION FUNCTIONS
-    %0 = nova.relu    %arg0 : tensor<1x8xf32>
-    %1 = nova.sigmoid %0    : tensor<1x8xf32>
-    %2 = nova.softmax %1    : tensor<1x8xf32>
-    %3 = nova.gelu    %2    : tensor<1x8xf32>
+    %0 = nova.relu    %arg0 : tensor<1x8xf32, #nova.device<"1">>
+    %1 = nova.sigmoid %0    : tensor<1x8xf32, #nova.device<"1">>
+    %2 = nova.softmax %1    : tensor<1x8xf32, #nova.device<"1">>
+    %3 = nova.gelu    %2    : tensor<1x8xf32, #nova.device<"1">>
 
-    return %3 : tensor<1x8xf32>
+    return %3 : tensor<1x8xf32, #nova.device<"1">>
   }
 }
 //../build/tools/nova-opt/nova-opt activefunc.mlir --canonicalize --convert-nova-to-tosa --convert-nova-to-linalg 
