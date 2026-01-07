@@ -7,7 +7,7 @@
 MLIR_OPT="./build/tools/nova-opt/nova-opt"
 MLIR_TRANSLATE="../../llvm-project/build/bin/mlir-translate"
 LLC="../../llvm-project/build/bin/llc"
-INPUT_FILE="test/test.mlir"
+INPUT_FILE="test/sample_model.mlir"
 
 echo "=== MLIR to LLVM IR Conversion Pipeline (using Nova Compiler) ==="
 echo ""
@@ -58,8 +58,8 @@ if [ $? -eq 0 ]; then
             if [ $? -eq 0 ]; then
                 echo "✓ Build successful! Running executable..."
                 echo ""
-                # Execute with Rank 2
-                LD_LIBRARY_PATH=/home/blu-bridge023/Desktop/llvm-project/build/lib:$LD_LIBRARY_PATH ./a.out 2
+                # Execute with Rank 3 (8x128x768)
+                LD_LIBRARY_PATH=/home/blu-bridge023/Desktop/llvm-project/build/lib:$LD_LIBRARY_PATH ./a.out
             else
                 echo "✗ Linking failed"
                 exit 1

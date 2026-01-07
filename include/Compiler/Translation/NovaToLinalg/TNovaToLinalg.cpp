@@ -831,14 +831,14 @@ namespace mlir
           mlir::Value greaterThanZero = builder->create<mlir::arith::CmpFOp>(
               loc, mlir::arith::CmpFPredicate::OGT, input, zeroF);
 
-          mlir::Value signPos = builder->create<mlir::arith::ExtUIOp>(loc, resultType, greaterThanZero);
+          mlir::Value signPos = builder->create<mlir::arith::UIToFPOp>(loc, resultType, greaterThanZero);
 
           mlir::Value lessThanZero = builder->create<mlir::arith::CmpFOp>(
               loc, mlir::arith::CmpFPredicate::OLT, input, zeroF);
 
-          mlir::Value signNeg = builder->create<mlir::arith::ExtUIOp>(loc, resultType, lessThanZero);
+          mlir::Value signNeg = builder->create<mlir::arith::UIToFPOp>(loc, resultType, lessThanZero);
 
-          return builder->create<mlir::arith::SubIOp>(loc, signPos, signNeg);
+          return builder->create<mlir::arith::SubFOp>(loc, signPos, signNeg);
         }
         else if (auto intType = llvm::dyn_cast<mlir::IntegerType>(input.getType()))
         {
@@ -847,13 +847,12 @@ namespace mlir
               loc, intType, builder->getIntegerAttr(intType, 0));
           mlir::Value greaterThanZero = builder->create<mlir::arith::CmpIOp>(
               loc, mlir::arith::CmpIPredicate::sgt, input, zero);
-
-          mlir::Value signPos = builder->create<mlir::arith::ExtUIOp>(loc, resultType, greaterThanZero);
+          mlir::Value signPos = builder->create<mlir::arith::UIToFPOp>(loc, resultType, greaterThanZero);
           mlir::Value lessThanZero = builder->create<mlir::arith::CmpIOp>(
               loc, mlir::arith::CmpIPredicate::slt, input, zero);
-          mlir::Value signNeg = builder->create<mlir::arith::ExtUIOp>(loc, resultType, lessThanZero);
+          mlir::Value signNeg = builder->create<mlir::arith::UIToFPOp>(loc, resultType, lessThanZero);
 
-          return builder->create<mlir::arith::SubIOp>(loc, signPos, signNeg);
+          return builder->create<mlir::arith::SubFOp>(loc, signPos, signNeg);
         }
         return nullptr;
       }
@@ -888,11 +887,11 @@ namespace mlir
         auto loc = argminOp.getLoc();
         Value input = argminOp.getInput();
         auto inputTy = cast<ShapedType>(input.getType());
-        auto resultTy = cast<ShapedType>(argminOp.getOutput().getType());
+        auto resultTy = cast<RankedTensorType>(argminOp.getType());
         auto inElementTy = inputTy.getElementType();
         auto outElementTy = resultTy.getElementType();
         int axis = static_cast<int>(argminOp.getDimension().value());
-        auto resultMinTy = RankedTensorType::get(resultTy.getShape(), inElementTy);
+        auto resultMinTy = RankedTensorType::get(resultTy.getShape(), inElementTy, resultTy.getEncoding());
 
         if (!isa<IntegerType>(outElementTy))
           return rewriter.notifyMatchFailure(
@@ -911,7 +910,7 @@ namespace mlir
         // First fill the output buffer for the index.
         auto emptyTensorIdx = rewriter
                                   .create<tensor::EmptyOp>(loc, resultTy.getShape(),
-                                                           outElementTy, dynDims)
+                                                           outElementTy, dynDims, resultTy.getEncoding())
                                   .getResult();
         auto fillValueIdx = rewriter.create<arith::ConstantOp>(
             loc, rewriter.getIntegerAttr(outElementTy, 0));
@@ -924,7 +923,7 @@ namespace mlir
         // Second fill the output buffer for the running min.
         auto emptyTensorMin = rewriter
                                   .create<tensor::EmptyOp>(loc, resultTy.getShape(),
-                                                           inElementTy, dynDims)
+                                                           inElementTy, dynDims, resultTy.getEncoding())
                                   .getResult();
         auto fillValueMinAttr =
             createInitialValueForReduceOp(argminOp, inElementTy, rewriter);
@@ -1050,7 +1049,7 @@ namespace mlir
 
         // Create output tensor
         Value out = rewriter.create<tensor::EmptyOp>(
-            op.getLoc(), resultType.getShape(), resultDataType);
+            op.getLoc(), resultType.getShape(), resultDataType,resultType.getEncoding());
 
         // Prepare affine maps
         int64_t rank = resultType.getRank();
@@ -1155,6 +1154,7 @@ namespace mlir
         target.addIllegalOp<nova::TanhOp>();
         target.addIllegalOp<nova::TransposeOp>();
         target.addIllegalOp<nova::Rndm2DOp>();
+        target.addIllegalOp<nova::ToDeviceOp>();
 
         target.markUnknownOpDynamicallyLegal([](Operation *)
                                              { return true; });

@@ -77,7 +77,6 @@ namespace mlir
         {
             // Custom passes removed in favor of standard MLIR passes.
         }
-
         void createNovaGPUPipelines(mlir::OpPassManager &pm)
         {
             pm.addPass(mlir::createCanonicalizerPass());
@@ -88,8 +87,8 @@ namespace mlir
             pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalgNamed());
             pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalg());
             // This enables the 2:4 structured sparsity hardware path on your RTX 3060.
-            pm.addPass(mlir::createSparsificationPass());
-            pm.addPass(mlir::createSparseTensorConversionPass());
+            // pm.addPass(mlir::createSparsificationPass());
+            // pm.addPass(mlir::createSparseTensorConversionPass());
 
             // 3. TOSA TO ARITH/TENSOR/SCF
             pm.addPass(mlir::createTosaToArithPass());
@@ -103,20 +102,23 @@ namespace mlir
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createLinalgElementwiseOpFusionPass());
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createLinalgGeneralizeNamedOpsPass());
             
-            // 5. TILING & VECTORIZATION
-            pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertVectorToGPUPass(true));
+            //  TILING & VECTORIZATION
+            // pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertVectorToGPUPass(true));
             pm.addNestedPass<mlir::func::FuncOp>(mlir::nvgpu::createOptimizeSharedMemoryPass());
             pm.addPass(mlir::createCanonicalizerPass());
 
-            // 5. BUFFERIZATION & DEALLOCATION
+            //5. BUFFERIZATION & DEALLOCATION
             bufferization::OneShotBufferizePassOptions bufferizeOptions;
             bufferizeOptions.bufferizeFunctionBoundaries = true;
             bufferizeOptions.functionBoundaryTypeConversion = bufferization::LayoutMapOption::IdentityLayoutMap;
+            bufferizeOptions.useEncodingForMemorySpace = true;
             pm.addPass(mlir::bufferization::createOneShotBufferizePass(bufferizeOptions));
 
             bufferization::BufferDeallocationPipelineOptions deallocationOptions;
             bufferization::buildBufferDeallocationPipeline(pm, deallocationOptions);
             pm.addPass(mlir::createConvertBufferizationToMemRefPass());
+            //device attribute handling pass
+            pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
             pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
             // 6. LINALG TO PARALLEL LOOPS
@@ -127,16 +129,17 @@ namespace mlir
             pm.addPass(mlir::createParallelLoopTilingPass({16, 16, 16}));
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createParallelLoopFusionPass());
             pm.addPass(mlir::createCanonicalizerPass());
-            //8. GPU MAPPING
+            //8. GPU MAPPINGcreateParallelLoopFusionPass
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());
             pm.addPass(mlir::createGpuMapParallelLoopsPass());
             pm.addPass(mlir::createConvertParallelLoopToGpuPass());
             pm.addPass(mlir::createCanonicalizerPass());
+            // Add custom memory management pass (REMOVED: handled by canonicalization)
+            // pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createAddGpuMemoryCopiesPass());
+            // Convert promoted memref.alloc to gpu.alloc
+            pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
             pm.addPass(mlir::createGpuKernelOutliningPass());
-            
-            // Add custom memory management pass
-            pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createAddGpuMemoryCopiesPass());
 
             mlir::GpuNVVMAttachTargetOptions nvvmTargetOptions;
             nvvmTargetOptions.triple = "nvptx64-nvidia-cuda";
@@ -144,54 +147,53 @@ namespace mlir
             pm.addPass(mlir::createGpuNVVMAttachTarget(nvvmTargetOptions));
 
             // Lowering INSIDE the GPU Module (Fixes 'index' in kernels)
-            auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
-            gpuPm.addPass(mlir::createLowerAffinePass());
-            gpuPm.addPass(mlir::createSCFToControlFlowPass());
-            mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
-            gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
-            gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
-            gpuPm.addPass(mlir::createArithToLLVMConversionPass());
-            gpuPm.addPass(mlir::createConvertMathToLLVMPass());
-            gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
+        //     auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
+        //     gpuPm.addPass(mlir::createLowerAffinePass());
+        //     gpuPm.addPass(mlir::createSCFToControlFlowPass());
+        //     mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
+        //     gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
+        //     gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
+        //     gpuPm.addPass(mlir::createArithToLLVMConversionPass());
+        //     gpuPm.addPass(mlir::createConvertMathToLLVMPass());
+        //     gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
 
-            // Binary generation (Stage 2)
-            mlir::GpuModuleToBinaryPassOptions binaryOptions;
-            binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
-            pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
+        //     // Binary generation (Stage 2)
+        //     mlir::GpuModuleToBinaryPassOptions binaryOptions;
+        //     binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
+        //     pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
 
-            // 10. FINAL HOST LOWERING (Fixes gpu.launch_func and index errors)
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
-            pm.addPass(mlir::createConvertIndexToLLVMPass());
-            pm.addPass(mlir::createArithToLLVMConversionPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
+        //     // 10. FINAL HOST LOWERING (Fixes gpu.launch_func and index errors)
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
+        //     pm.addPass(mlir::createConvertIndexToLLVMPass());
+        //     pm.addPass(mlir::createArithToLLVMConversionPass());
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
 
-            // MAIN LOWERING: gpu.launch_func -> runtime calls
-            mlir::GpuToLLVMConversionPassOptions hostOptions;
-            pm.addPass(mlir::createGpuToLLVMConversionPass(hostOptions));
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
-            pm.addPass(mlir::createSCFToControlFlowPass());
-            pm.addPass(mlir::createConvertControlFlowToLLVMPass());
-            pm.addPass(mlir::createArithToLLVMConversionPass());
-            pm.addPass(mlir::memref::createExpandStridedMetadataPass());
-            pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass()); 
-            pm.addPass(mlir::nova::createFixGpuLaunchPass()); 
-            pm.addPass(mlir::createConvertFuncToLLVMPass()); 
-            pm.addPass(mlir::createReconcileUnrealizedCastsPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
+        //     // MAIN LOWERING: gpu.launch_func -> runtime calls
+        //     mlir::GpuToLLVMConversionPassOptions hostOptions;
+        //     pm.addPass(mlir::createGpuToLLVMConversionPass(hostOptions));
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
+        //     pm.addPass(mlir::createSCFToControlFlowPass());
+        //     pm.addPass(mlir::createConvertControlFlowToLLVMPass());
+        //     pm.addPass(mlir::createArithToLLVMConversionPass());
+        //     pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+        //     pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass()); 
+        //     pm.addPass(mlir::nova::createFixGpuLaunchPass()); 
+        //     pm.addPass(mlir::createConvertFuncToLLVMPass()); 
+        //     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+        //     pm.addPass(mlir::createCanonicalizerPass());
+        //     pm.addPass(mlir::createCSEPass());
+        // 
         }
-
         void registerNovaGPUPipelines()
         {
             PassPipelineRegistration<>("nova-gpu-pipeline",
                                        "Nova GPU Pipeline",
                                        createNovaGPUPipelines);
         }
-
     } // namespace nova
 } // namespace mlir
