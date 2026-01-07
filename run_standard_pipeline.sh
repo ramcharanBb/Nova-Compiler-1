@@ -7,7 +7,7 @@
 MLIR_OPT="./build/tools/nova-opt/nova-opt"
 MLIR_TRANSLATE="../../llvm-project/build/bin/mlir-translate"
 LLC="../../llvm-project/build/bin/llc"
-INPUT_FILE="test/testexpo.mlir"
+INPUT_FILE="test/sample_model.mlir"
 
 echo "=== MLIR to LLVM IR Conversion Pipeline (using Nova Compiler) ==="
 echo ""
