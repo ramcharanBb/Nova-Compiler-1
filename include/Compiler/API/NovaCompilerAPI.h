@@ -100,7 +100,8 @@ public:
   // novaOptPath Path to nova-opt 
   static bool compileToLLVMIR(const std::string &inputFile,
                               const std::string &outputFile,
-                              const std::string &novaOptPath = "");
+                              const std::string &novaOptPath = "",
+                              const std::string &device = "cpu");
   
   // Compile MLIR file to object file using system calls
   // inputFile Path to input .mlir file
@@ -108,14 +109,16 @@ public:
   // novaOptPath Path to nova-opt 
   static bool compileToObject(const std::string &inputFile,
                               const std::string &outputFile,
-                              const std::string &novaOptPath = "");
+                              const std::string &novaOptPath = "",
+                              const std::string &device = "cpu");
   
   // Get LLVM IR as string
   // inputFile Path to input .mlir file
   // novaOptPath Path to nova-opt binary (optional)
   // return LLVM IR as string, or empty string on error
   static std::string getLLVMIR(const std::string &inputFile,
-                               const std::string &novaOptPath = "");
+                               const std::string &novaOptPath = "",
+                               const std::string &device = "cpu");
 
 private:
   // Execute command and capture output

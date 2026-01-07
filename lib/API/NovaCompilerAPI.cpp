@@ -268,12 +268,23 @@ std::string NovaCompilerSystemAPI::findNovaOpt(const std::string &hint) {
 
 bool NovaCompilerSystemAPI::compileToLLVMIR(const std::string &inputFile,
                                             const std::string &outputFile,
-                                            const std::string &novaOptPath) {
+                                            const std::string &novaOptPath,
+                                            const std::string &device) {
   std::string novaOpt = findNovaOpt(novaOptPath);
   
   // Build command: nova-opt | mlir-translate
-  std::string cmd = novaOpt + " " + inputFile + " --nova-opt-pipeline | " +
-                    "mlir-translate --mlir-to-llvmir > " + outputFile;
+  std::string cmd;
+  if(device == "cpu") {
+    cmd = novaOpt + " " + inputFile + " --nova-opt-pipeline | " +
+          "mlir-translate --mlir-to-llvmir > " + outputFile;
+  }
+  else if(device == "gpu") {
+    cmd = novaOpt + " " + inputFile + " --nova-gpu-pipeline | " +
+          "mlir-translate --mlir-to-llvmir > " + outputFile;
+  }
+  else {
+    return false; // Invalid device type
+  }
   
   int result = system(cmd.c_str());
   return result == 0;
@@ -281,10 +292,11 @@ bool NovaCompilerSystemAPI::compileToLLVMIR(const std::string &inputFile,
 
 bool NovaCompilerSystemAPI::compileToObject(const std::string &inputFile,
                                             const std::string &outputFile,
-                                            const std::string &novaOptPath) {
+                                            const std::string &novaOptPath,
+                                            const std::string &device) {
   // First compile to LLVM IR
   std::string tempLL = outputFile + ".tmp.ll";
-  if (!compileToLLVMIR(inputFile, tempLL, novaOptPath)) {
+  if (!compileToLLVMIR(inputFile, tempLL, novaOptPath, device)) {
     return false;
   }
   
@@ -299,11 +311,13 @@ bool NovaCompilerSystemAPI::compileToObject(const std::string &inputFile,
 }
 
 std::string NovaCompilerSystemAPI::getLLVMIR(const std::string &inputFile,
-                                             const std::string &novaOptPath) {
+                                             const std::string &novaOptPath,
+                                             const std::string &device) {
   std::string novaOpt = findNovaOpt(novaOptPath);
   
-  // Build command
-  std::string cmd = novaOpt + " " + inputFile + " --nova-opt-pipeline | " +
+  // Build command based on device
+  std::string pipeline = (device == "gpu") ? "--nova-gpu-pipeline" : "--nova-opt-pipeline";
+  std::string cmd = novaOpt + " " + inputFile + " " + pipeline + " | " +
                     "mlir-translate --mlir-to-llvmir";
   
   return executeCommand(cmd);
