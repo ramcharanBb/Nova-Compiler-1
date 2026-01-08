@@ -7,7 +7,7 @@
 namespace mlir {
 namespace nova {
 
-std::unique_ptr<Pass> createFixGpuLaunchPass();
+std::unique_ptr<Pass> createGpuRuntimeLoweringPass();
 
 } // namespace nova
 } // namespace mlir

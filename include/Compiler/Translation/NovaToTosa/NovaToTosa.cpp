@@ -1528,7 +1528,6 @@ struct NovaToTosaLoweringPass
     target.addIllegalOp<nova::BceOp>();
     // target.addIllegalOp<nova::MatmulOp>();
     target.addIllegalOp<nova::AddOp>();
-    target.addIllegalOp<nova::ScalarConstOp>();
     target.addIllegalOp<nova::MaeOp>();
     target.addIllegalOp<nova::TransposeOp>();
     target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
@@ -1554,7 +1553,7 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
   patterns
       .add<NovaReluOpLowering, NovaGeluOpLowering, NovaSoftmaxLoweringPattern,
            //   NovaMatmulOpTosaLowering,
-           NovaScalarConstOpLowering, NovaConstantToTosaConstPattern,
+            NovaConstantToTosaConstPattern,
            NovaToTosaLoweringTemplate<nova::MaxOp>,
            NovaToTosaLoweringTemplate<nova::LogOp>,
            NovaToTosaLoweringTemplate<nova::AbsOp>,
@@ -1579,7 +1578,6 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
            NovaToTosaLoweringTemplate<nova::BceOp>,
            NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
            NovaToTosaLoweringTemplate<nova::ArgMinOp>,
-           //    NovaToTosaLoweringTemplate<nova::ConstantOp>,
            NovaToTosaLoweringTemplate<nova::SigmoidOp>>(patterns.getContext());
 }
 
