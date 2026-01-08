@@ -1597,7 +1597,7 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
   patterns
       .add<NovaReluOpLowering, NovaGeluOpLowering, NovaSoftmaxLoweringPattern,
            //   NovaMatmulOpTosaLowering,
-           NovaScalarConstOpLowering, NovaConstantToTosaConstPattern,
+           NovaConstantToTosaConstPattern,
            NovaToTosaLoweringTemplate<nova::MaxOp>,
            NovaToTosaLoweringTemplate<nova::LogOp>,
            NovaToTosaLoweringTemplate<nova::AbsOp>,

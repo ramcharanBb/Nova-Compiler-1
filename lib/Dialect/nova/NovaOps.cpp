@@ -835,14 +835,12 @@ LogicalResult CompareOp::verify() {
 //   // The result type of sign is always int8
 //   // the shape is tensor of shape same as inputs
 //   auto shape = llvm::dyn_cast<TensorType>(operands[0].getType()).getShape();
-//   Type resultType = RankedTensorType::get(shape, IntegerType::get(context, 8));
-//   inferredReturnTypes.push_back(resultType);
-//   return success();
+//   Type resultType = RankedTensorType::get(shape, IntegerType::get(context,
+//   8)); inferredReturnTypes.push_back(resultType); return success();
 // }
-void ArgmaxOp::build(OpBuilder &builder, OperationState &state,
-                     Value input, int64_t dimension,
-                     bool keepdims, bool ignore_nan, Type resultType)
-{
+void ArgmaxOp::build(OpBuilder &builder, OperationState &state, Value input,
+                     int64_t dimension, bool keepdims, bool ignore_nan,
+                     Type resultType) {
   state.addOperands(input);
   if (!dimension) {
     state.addAttribute("dimension",
@@ -1556,7 +1554,7 @@ MaeOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      inputType.getShape(), outElemTy,
+      {1}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1589,7 +1587,7 @@ MseOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      inputType.getShape(), outElemTy,
+      {1}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1622,7 +1620,7 @@ CceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      inputType.getShape(), outElemTy,
+      {1}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1655,7 +1653,7 @@ BceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      inputType.getShape(), outElemTy,
+      {1}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1663,6 +1661,22 @@ BceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
 
   inferredReturnTypes.push_back(outType);
   return success();
+}
+
+OpFoldResult ToDeviceOp::fold(FoldAdaptor adaptor) {
+  auto inputType = cast<RankedTensorType>(getInput().getType());
+  auto resultType = cast<RankedTensorType>(getResult().getType());
+
+  auto inputEncoding =
+      dyn_cast_or_null<NovaDeviceAttr>(inputType.getEncoding());
+  auto resultEncoding =
+      dyn_cast_or_null<NovaDeviceAttr>(resultType.getEncoding());
+
+  if (inputEncoding && resultEncoding &&
+      inputEncoding.getValue() == resultEncoding.getValue())
+    return getInput();
+
+  return {};
 }
 
 LogicalResult ToDeviceOp::verify() {
@@ -1737,13 +1751,22 @@ static Value ensureDevice(OpBuilder &builder, Value value, StringRef device) {
   auto type = cast<RankedTensorType>(value.getType());
   auto encoding = dyn_cast_or_null<NovaDeviceAttr>(type.getEncoding());
   if (encoding) {
-    // llvm::errs() << "  ensureDevice: value has encoding " <<
-    // encoding.getValue()
-    //  << ", target is " << device << "\n";
     if (encoding.getValue() == device)
       return value;
-  } else {
-    // llvm::errs() << "  ensureDevice: value has NO encoding\n";
+  }
+
+  // Look for an existing to_device op that already transfers this value to the
+  // target device
+  for (auto &use : value.getUses()) {
+    if (auto toDevice = dyn_cast<ToDeviceOp>(use.getOwner())) {
+      if (toDevice.getInput() == value) {
+        auto resultType = cast<RankedTensorType>(toDevice.getType());
+        auto resultEncoding =
+            dyn_cast_or_null<NovaDeviceAttr>(resultType.getEncoding());
+        if (resultEncoding && resultEncoding.getValue() == device)
+          return toDevice.getResult();
+      }
+    }
   }
 
   auto targetType = RankedTensorType::get(
@@ -1846,7 +1869,6 @@ struct EnsureGpuInputs : public OpRewritePattern<OpTy> {
 
 // Unary Ops
 DEFINE_GPU_INPUT_CANONICALIZER(ConstantOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ScalarConstOp)
 DEFINE_GPU_INPUT_CANONICALIZER(AbsOp)
 DEFINE_GPU_INPUT_CANONICALIZER(AcosOp)
 DEFINE_GPU_INPUT_CANONICALIZER(AsinOp)
