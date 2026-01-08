@@ -41,6 +41,7 @@ add_mlir_library(NovaPipelines
   MLIRGPUPipelines
   MLIRNVVMTarget
   MLIRAffineTransforms
+  MLIRAffineToStandard
   MLIRGPUToNVVMTransforms
   MLIRNVVMToLLVMIRTranslation
   MLIRTosaToLinalg
