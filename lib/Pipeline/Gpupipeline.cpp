@@ -50,8 +50,8 @@
 #include "mlir/Conversion/GPUToNVVM/GPUToNVVMPass.h"
 #include "mlir/Conversion/Passes.h"
 #include "mlir/Conversion/VectorToGPU/VectorToGPU.h"
-#include "mlir/Dialect/GPU/IR/GPUDialect.h"    // For GPUModuleOp
-#include "mlir/Dialect/GPU/Pipelines/Passes.h" // For GpuNVVMAttachTarget
+#include "mlir/Dialect/GPU/IR/GPUDialect.h"     // For GPUModuleOp
+#include "mlir/Dialect/GPU/Pipelines/Passes.h"  // For GpuNVVMAttachTarget
 #include "mlir/Dialect/GPU/Transforms/Passes.h" // For createGpuKernelOutliningPass
 #include "mlir/Dialect/NVGPU/Transforms/Passes.h"
 #include "mlir/Dialect/SparseTensor/Transforms/Passes.h"
@@ -68,16 +68,20 @@
 
 using namespace mlir;
 
-namespace mlir {
-namespace nova {
-namespace {
-// Custom passes removed in favor of standard MLIR passes.
-}
-void createNovaGPUPipelines(mlir::OpPassManager &pm) {
-  pm.addPass(mlir::createCanonicalizerPass());
-  pm.addPass(mlir::nova::createNovaToTosaLoweringPass());
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::nova::createNovaToLinalgLoweringPass());
+namespace mlir
+{
+    namespace nova
+    {
+        namespace
+        {
+            // Custom passes removed in favor of standard MLIR passes.
+        }
+        void createNovaGPUPipelines(mlir::OpPassManager &pm)
+        {
+            pm.addPass(mlir::createCanonicalizerPass());
+            pm.addPass(mlir::nova::createNovaToTosaLoweringPass());
+            pm.addNestedPass<mlir::func::FuncOp>(
+                mlir::nova::createNovaToLinalgLoweringPass());
 
   // 2. TOSA TO LINALG (Named and regular)
   pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalgNamed());
@@ -91,20 +95,14 @@ void createNovaGPUPipelines(mlir::OpPassManager &pm) {
   pm.addPass(mlir::createTosaToTensorPass());
   pm.addPass(mlir::createTosaToSCFPass());
 
-  // 4. NOVA TRANSFORMS & LINALG OPT
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createFuseMatmulBiasPass());
-  pm.addPass(mlir::createCanonicalizerPass());
-  // Tiling is handled in Section 6 after parallel loop conversion
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::createLinalgElementwiseOpFusionPass());
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::createLinalgGeneralizeNamedOpsPass());
-
-  //  TILING & VECTORIZATION
-  // pm.addNestedPass<mlir::func::FuncOp>(mlir::createConvertVectorToGPUPass(true));
-  pm.addNestedPass<mlir::func::FuncOp>(
-      mlir::nvgpu::createOptimizeSharedMemoryPass());
-  pm.addPass(mlir::createCanonicalizerPass());
+            // 4. NOVA TRANSFORMS & LINALG OPT
+            pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createFuseMatmulBiasPass());
+            pm.addPass(mlir::createCanonicalizerPass());
+            // Tiling is handled in Section 6 after parallel loop conversion
+            pm.addNestedPass<mlir::func::FuncOp>(
+                mlir::createLinalgElementwiseOpFusionPass());
+            pm.addNestedPass<mlir::func::FuncOp>(
+                mlir::createLinalgGeneralizeNamedOpsPass());
 
             // 5. BUFFERIZATION & DEALLOCATION
             bufferization::OneShotBufferizePassOptions bufferizeOptions;
@@ -113,24 +111,24 @@ void createNovaGPUPipelines(mlir::OpPassManager &pm) {
             bufferizeOptions.useEncodingForMemorySpace = true;
             pm.addPass(mlir::bufferization::createOneShotBufferizePass(bufferizeOptions));
 
-  bufferization::BufferDeallocationPipelineOptions deallocationOptions;
-  bufferization::buildBufferDeallocationPipeline(pm, deallocationOptions);
-  pm.addPass(mlir::createConvertBufferizationToMemRefPass());
-  // device attribute handling pass
-  pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
-  pm.addPass(mlir::createReconcileUnrealizedCastsPass());
+            bufferization::BufferDeallocationPipelineOptions deallocationOptions;
+            bufferization::buildBufferDeallocationPipeline(pm, deallocationOptions);
+            pm.addPass(mlir::createConvertBufferizationToMemRefPass());
+            // device attribute handling pass
+            pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
+            pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 
             // 6. LINALG OPTIMIZATION & TILING
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createLinalgFoldUnitExtentDimsPass());
             pm.addPass(mlir::createCanonicalizerPass());
-            
+
             // Map Linalg to Parallel Loops
             pm.addPass(mlir::createConvertLinalgToParallelLoopsPass());
             // Apply Tiling HERE on the parallel loops
             pm.addPass(mlir::createParallelLoopTilingPass({32, 32, 1}));
             pm.addNestedPass<mlir::func::FuncOp>(mlir::createParallelLoopFusionPass());
             pm.addPass(mlir::createCanonicalizerPass());
-            //8. GPU MAPPINGcreateParallelLoopFusionPass
+            // 8. GPU MAPPINGcreateParallelLoopFusionPass
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());
             pm.addPass(mlir::createGpuMapParallelLoopsPass());
@@ -144,10 +142,32 @@ void createNovaGPUPipelines(mlir::OpPassManager &pm) {
             pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
             pm.addPass(mlir::createGpuKernelOutliningPass());
 
-  mlir::GpuNVVMAttachTargetOptions nvvmTargetOptions;
-  nvvmTargetOptions.triple = "nvptx64-nvidia-cuda";
-  nvvmTargetOptions.chip = "sm_86";
-  pm.addPass(mlir::createGpuNVVMAttachTarget(nvvmTargetOptions));
+            // 6. LINALG TO PARALLEL LOOPS
+            pm.addNestedPass<mlir::func::FuncOp>(
+                mlir::createLinalgFoldUnitExtentDimsPass());
+            pm.addPass(mlir::createCanonicalizerPass());
+            pm.addPass(mlir::createConvertLinalgToParallelLoopsPass());
+            // Apply Tiling HERE on the parallel loops
+            pm.addPass(mlir::createParallelLoopTilingPass({32, 32, 1}));
+            pm.addNestedPass<mlir::func::FuncOp>(mlir::createParallelLoopFusionPass());
+            pm.addPass(mlir::createCanonicalizerPass());
+            // 8. GPU MAPPINGcreateParallelLoopFusionPass
+            pm.addPass(mlir::createCanonicalizerPass());
+            pm.addPass(mlir::createCSEPass());
+            pm.addPass(mlir::createGpuMapParallelLoopsPass());
+            pm.addPass(mlir::createConvertParallelLoopToGpuPass());
+            pm.addPass(mlir::createCanonicalizerPass());
+            // Add custom memory management pass (REMOVED: handled by canonicalization)
+            pm.addNestedPass<mlir::func::FuncOp>(
+                mlir::nova::createAddGpuMemoryCopiesPass());
+            // Convert promoted memref.alloc to gpu.alloc
+            pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
+            pm.addPass(mlir::createGpuKernelOutliningPass());
+
+            mlir::GpuNVVMAttachTargetOptions nvvmTargetOptions;
+            nvvmTargetOptions.triple = "nvptx64-nvidia-cuda";
+            nvvmTargetOptions.chip = "sm_86";
+            pm.addPass(mlir::createGpuNVVMAttachTarget(nvvmTargetOptions));
 
 //   // Lowering INSIDE the GPU Module (Fixes 'index' in kernels)
 //   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
@@ -162,18 +182,10 @@ void createNovaGPUPipelines(mlir::OpPassManager &pm) {
 //   pm.addPass(mlir::createCanonicalizerPass());
 //   pm.addPass(mlir::createCSEPass());
 
-//   // Binary generation (Stage 2)
-//   mlir::GpuModuleToBinaryPassOptions binaryOptions;
-//   binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
-//   pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
-
-//   // 10. FINAL HOST LOWERING (Fixes gpu.launch_func and index errors)
-//   pm.addPass(mlir::createCanonicalizerPass());
-//   pm.addPass(mlir::createCSEPass());
-//   pm.addPass(mlir::createConvertIndexToLLVMPass());
-//   pm.addPass(mlir::createArithToLLVMConversionPass());
-//   pm.addPass(mlir::createCanonicalizerPass());
-//   pm.addPass(mlir::createCSEPass());
+            // Binary generation (Stage 2)
+            mlir::GpuModuleToBinaryPassOptions binaryOptions;
+            binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
+            pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
 
             // MAIN LOWERING: gpu.launch_func -> runtime calls
             mlir::GpuToLLVMConversionPassOptions hostOptions;
@@ -185,9 +197,9 @@ void createNovaGPUPipelines(mlir::OpPassManager &pm) {
 
             pm.addPass(mlir::createArithToLLVMConversionPass());
             pm.addPass(mlir::memref::createExpandStridedMetadataPass());
-            pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass()); 
-            pm.addPass(mlir::nova::createGpuRuntimeLoweringPass()); 
-            pm.addPass(mlir::createConvertFuncToLLVMPass()); 
+            pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
+            pm.addPass(mlir::nova::createGpuRuntimeLoweringPass());
+            pm.addPass(mlir::createConvertFuncToLLVMPass());
             pm.addPass(mlir::createReconcileUnrealizedCastsPass());
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());

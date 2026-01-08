@@ -7,6 +7,7 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
+#include "llvm/ADT/MapVector.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/MapVector.h"
 

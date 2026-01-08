@@ -4,26 +4,19 @@
 #include "mlir/Conversion/FuncToLLVM/ConvertFuncToLLVMPass.h"
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
-#include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
-#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVMPass.h"
-//other conversion includes from mlir
+// other conversion includes from mlir
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TosaToArith/TosaToArith.h"
 #include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
 #include "mlir/Conversion/TosaToTensor/TosaToTensor.h"
-#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
-#include "mlir/Conversion/TosaToArith/TosaToArith.h"
-#include "mlir/Conversion/UBToLLVM/UBToLLVM.h"
-//utils
+// utils
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/Linalg/Transforms/Transforms.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
-#include "mlir/Dialect/Linalg/Transforms/Transforms.h"
-#include "mlir/Dialect/Math/Transforms/Passes.h"
-//buffer includes
+// buffer includes
 #include "mlir/Conversion/BufferizationToMemRef/BufferizationToMemRef.h"
 #include "mlir/Dialect/Bufferization/Pipelines/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Bufferize.h"
@@ -110,58 +103,24 @@ void mlir::nova::createNovaPipelines(OpPassManager &pm) {
   // Convert remaining bufferization ops to memref
   pm.addPass(mlir::createConvertBufferizationToMemRefPass());
 
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-
-
-  OpPassManager &funcPM = pm.nest<func::FuncOp>();
-  
-  if (failed(mlir::parsePassPipeline("func.func(affine-loop-tile{tile-sizes=32,32,8})", pm))) {
-    llvm::errs() << "Failed to parse affine tiling pipeline.\n";
-    return;
-  }
-
-
-  if (failed(parsePassPipeline("func.func(affine-parallelize{max-nested=2})", pm))) {}
-  
-  // Unroll and Jam (factor=2)
-  funcPM.addPass(mlir::affine::createLoopUnrollAndJamPass(2));
-
-  // Loop Unroll (factor=8)
-  funcPM.addPass(mlir::affine::createLoopUnrollPass(8));
-
-  funcPM.addPass(mlir::createCanonicalizerPass());
-  funcPM.addPass(mlir::createCSEPass());
-  funcPM.addPass(mlir::math::createMathUpliftToFMA());  
- 
-  mlir::affine::AffineVectorizeOptions vectorOptions;
-  vectorOptions.vectorSizes = {8};
-  funcPM.addPass(mlir::affine::createAffineVectorize(vectorOptions));
-
-  funcPM.addPass(mlir::createCanonicalizerPass());
-
-  // Lower affine to standard control flow
-  pm.addPass(createLowerAffinePass());
-  pm.addPass(mlir::createConvertVectorToSCFPass());
-  pm.addPass(createLowerAffinePass());
+  // Convert memref with space 1 to gpu.alloc
+  pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
 
   // Lower Linalg to loops (SCF dialect)
   pm.addPass(mlir::createConvertLinalgToLoopsPass());
 
   // Convert SCF to CF (Control Flow)
   pm.addPass(mlir::createSCFToControlFlowPass());
-  pm.addPass(createCanonicalizerPass()); 
-  
+
   pm.addPass(mlir::memref::createExpandStridedMetadataPass());
 
-  //Lower to LLVM dialect
-  pm.addPass(createConvertControlFlowToLLVMPass());
-  pm.addPass(mlir::createConvertVectorToLLVMPass());
+  // Lower to LLVM dialect
   pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createArithToLLVMConversionPass());
   pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass()); // Convert functions lastly
-  
-  pm.addPass(mlir::createUBToLLVMConversionPass());
+
+  pm.addPass(mlir::compiler::createCleanupPass());
   // reconcile unrealized casts
   pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 }
