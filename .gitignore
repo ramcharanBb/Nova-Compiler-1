@@ -42,7 +42,8 @@ tablegen_compile_commands.yml
 .idea/
 .DS_Store
 Thumbs.db
-
+.clangd
+*.idx
 # Executable files (added)
 *.out
 *.app

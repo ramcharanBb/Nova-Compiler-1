@@ -95,6 +95,7 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComple
 }
 def Nova_ToDeviceOp : Op<Nova_Dialect, "to_device", [Pure]> {
   let hasCanonicalizer = 1;
+  let hasFolder = 1;
   let summary = "Explicitly copy a tensor to a different device";
   let description = [{
     The `nova.to_device` operation copies a tensor from one device to another.

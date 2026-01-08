@@ -1178,286 +1178,723 @@ struct NovaSoftmaxLoweringPattern : public OpConversionPattern<SoftmaxOp> {
     Value op5 = rewriter.create<tosa::MulOp>(loc, restype, op3, recip, shift);
     rewriter.replaceOp(op, op5);
 
+    return v;
+  }
+  // MAE lowering pattern
+  static Value mappingtosa(nova::MaeOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto targetElemType = restensor.getElementType();
+    auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
+    auto newVType = mlir::RankedTensorType::get(
+        v_type.getShape(), targetElemType, v_type.getEncoding());
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[0]);
+    auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+    auto newWType = mlir::RankedTensorType::get(
+        w_type.getShape(), targetElemType, w_type.getEncoding());
+    auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
+    // loss= reduce_mean(abs(arg0-arg1))
+    auto sub = builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
+    auto abs = builder->create<tosa::AbsOp>(op.getLoc(), newVType, sub);
+    nova::ReductionKind rk = nova::ReductionKind::MEAN;
+    // only 2d for now.
+    int64_t rank = cast<mlir::ShapedType>(abs.getType()).getRank();
+    llvm::SmallVector<int64_t, 1> dimensions;
+    if (rank > 0) {
+      for (int64_t i = 0; i < rank; ++i) {
+        dimensions.push_back(i);
+      }
+    }
+    return builder->create<nova::ReduceOp>(op.getLoc(), rk, abs, resultType,
+                                           false, dimensions);
+  }
+  // MSE lowering pattern
+  static Value mappingtosa(nova::MseOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    // loss= reduce_mean(square(arg0-arg1))
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto targetElemType = restensor.getElementType();
+    auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
+    auto newVType = mlir::RankedTensorType::get(
+        v_type.getShape(), targetElemType, v_type.getEncoding());
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[0]);
+    auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+    auto newWType = mlir::RankedTensorType::get(
+        w_type.getShape(), targetElemType, w_type.getEncoding());
+    auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
+    auto sub = builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
+
+    mlir::RankedTensorType constType = mlir::RankedTensorType::get(
+        v_type.getShape(), builder->getF32Type(), v_type.getEncoding());
+    mlir::DenseElementsAttr constAttr =
+        mlir::DenseElementsAttr::get(constType, llvm::ArrayRef<float_t>(2));
+    auto constTwo =
+        builder->create<tosa::ConstOp>(op.getLoc(), constType, constAttr);
+    auto abs =
+        builder->create<tosa::PowOp>(op.getLoc(), newVType, sub, constTwo);
+
+    nova::ReductionKind rk = nova::ReductionKind::MEAN;
+    int64_t rank = cast<mlir::ShapedType>(abs.getType()).getRank();
+
+    llvm::SmallVector<int64_t, 1> dimensions;
+    if (rank > 0) {
+      for (int64_t i = 0; i < rank; ++i) {
+        dimensions.push_back(i);
+      }
+    }
+    return builder->create<nova::ReduceOp>(op.getLoc(), rk, abs, resultType,
+                                           false, dimensions);
+  }
+  // CCE lowering pattern
+  static Value mappingtosa(nova::CceOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    // basic casting logic
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto targetElemType = restensor.getElementType();
+    auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
+    auto newVType = mlir::RankedTensorType::get(
+        v_type.getShape(), targetElemType, v_type.getEncoding());
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType, input[0]);
+    auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+    auto newWType = mlir::RankedTensorType::get(
+        w_type.getShape(), targetElemType, w_type.getEncoding());
+    auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
+    // step1:creating 1x10^-7  tensor constant
+    auto epiAttr =
+        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(0.0000001f));
+    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
+    // step2: creating one minus epsilon constant
+    auto oneminusepiAttr =
+        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(1.0f));
+    Value ones =
+        builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+    Value oneminusepi = builder->create<nova::SubOp>(op.getLoc(), ones, epi);
+    // step3:creating compare op
+    auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
+    // Get the boolean element type (i1)
+    auto boolType = builder->getI1Type();
+    auto compareResultType =
+        mlir::RankedTensorType::get(inputShape, boolType, v_type.getEncoding());
+    auto ck = nova::ComparisonType::LT;
+    auto compare = builder->create<nova::CompareOp>(
+        op.getLoc(), compareResultType, v, epi, ck);
+    auto cp =
+        builder->create<tosa::SelectOp>(op.getLoc(), newVType, compare, epi, v);
+    // step4:second compare
+    auto ck1 = nova::ComparisonType::GT;
+    auto compare1 = builder->create<nova::CompareOp>(
+        op.getLoc(), compareResultType, cp, oneminusepi, ck1);
+    auto cp1 = builder->create<tosa::SelectOp>(op.getLoc(), newVType, compare1,
+                                               oneminusepi, cp);
+    // step5 : target *log(cp)
+    auto log = builder->create<nova::LogOp>(op.getLoc(), cp1);
+    auto mul = builder->create<nova::MulOp>(op.getLoc(), log, w);
+    // step6:create -1 constant tensor (scalar)
+    auto constType =
+        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
+    auto minus1Attr =
+        DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
+    Value minus1 =
+        builder->create<tosa::ConstOp>(op.getLoc(), constType, minus1Attr);
+    // step 7 :reducesum(log result) along expect 0
+    auto inputTensorType = cast<mlir::RankedTensorType>(mul.getType());
+    int64_t inputRank = inputTensorType.getRank();
+    llvm::SmallVector<int64_t, 4> newShape;
+    newShape.push_back(inputTensorType.getDimSize(0));
+    // reducing along all axis expect zero
+    llvm::SmallVector<int64_t, 4> dimensions;
+    for (int64_t i = 1; i < inputRank; ++i) {
+      dimensions.push_back(i);
+      // newShape.push_back(1);
+    }
+    auto reducedResultType = mlir::RankedTensorType::get(
+        newShape, targetElemType, v_type.getEncoding());
+
+    nova::ReductionKind rk = nova::ReductionKind::SUM;
+    auto reduceres = builder->create<nova::ReduceOp>(
+        op.getLoc(), rk, mul, reducedResultType, false, dimensions);
+    rk = nova::ReductionKind::MEAN;
+    auto reducemeanres =
+        builder->create<nova::ReduceOp>(op.getLoc(), rk, reduceres, resultType);
+    // step 9: mul reduce result and -1
+    return builder->create<nova::MulOp>(op.getLoc(), reducemeanres, minus1);
+  }
+
+  // BCE lowering pattern
+  static Value mappingtosa(nova::BceOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    // basic casting logic
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto targetElemType = restensor.getElementType();
+    auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
+    auto newVType = mlir::RankedTensorType::get(
+        v_type.getShape(), targetElemType, v_type.getEncoding());
+    //  auto v = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[0]);
+    auto v = input[0];
+    auto w = input[1];
+    auto w_type = cast<mlir::RankedTensorType>(input[1].getType());
+    [[maybe_unused]] auto newWType = mlir::RankedTensorType::get(
+        w_type.getShape(), targetElemType, w_type.getEncoding());
+    // auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
+    // step1:creating 1x10^-7  tensor constant
+    auto epiAttr =
+        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(0.0000001f));
+    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
+    // step2: creating one minus epsilon constant
+    auto oneminusepiAttr =
+        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(1.0f));
+    Value ones =
+        builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+    Value oneminusepi = builder->create<nova::SubOp>(op.getLoc(), ones, epi);
+    // step3:creating compare op
+    auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
+    // Get the boolean element type (i1)
+    auto boolType = builder->getI1Type();
+    auto compareResultType =
+        mlir::RankedTensorType::get(inputShape, boolType, v_type.getEncoding());
+    auto ck = nova::ComparisonType::LT;
+    auto compare = builder->create<nova::CompareOp>(
+        op.getLoc(), compareResultType, v, epi, ck);
+    auto cp =
+        builder->create<tosa::SelectOp>(op.getLoc(), newVType, compare, epi, v);
+    // step4:second compare
+    auto ck1 = nova::ComparisonType::GT;
+    auto compare1 = builder->create<nova::CompareOp>(
+        op.getLoc(), compareResultType, cp, oneminusepi, ck1);
+    auto cp1 = builder->create<tosa::SelectOp>(op.getLoc(), newVType, compare1,
+                                               oneminusepi, cp);
+    // step5 : temr1=target *log(cp)
+    auto log = builder->create<nova::LogOp>(op.getLoc(), cp1);
+    auto term1 = builder->create<nova::MulOp>(op.getLoc(), log, w);
+
+    // step8:find term2=(ones-arg1)*log(ones-clipped predicts)
+    // ones-arg1
+    auto termonelhs = builder->create<nova::SubOp>(op.getLoc(), ones, w);
+    auto termtworhs = builder->create<nova::SubOp>(op.getLoc(), ones, cp1);
+    auto termtwologrhs = builder->create<nova::LogOp>(op.getLoc(), termtworhs);
+    auto term2 =
+        builder->create<nova::MulOp>(op.getLoc(), termonelhs, termtwologrhs);
+    // step9 :find sum terms +term1+term2
+    auto sumterms = builder->create<nova::AddOp>(op.getLoc(), term1, term2);
+    // step 10 :reducemean(sum result) full reduction
+    auto inputTensorType = cast<mlir::RankedTensorType>(term1.getType());
+    int64_t inputRank = inputTensorType.getRank();
+    llvm::SmallVector<int64_t, 4> dimensions;
+    for (int64_t i = 0; i < inputRank; ++i) {
+      dimensions.push_back(i);
+    }
+    // reducing along all axis
+    auto rk = nova::ReductionKind::MEAN;
+    auto reducemeanres = builder->create<nova::ReduceOp>(
+        op.getLoc(), rk, sumterms, resultType, false, dimensions);
+
+    // step11:create -1 constant tensor (scalar)
+    auto constType =
+        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
+    auto minus1Attr =
+        DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
+    Value minus1 =
+        builder->create<tosa::ConstOp>(op.getLoc(), constType, minus1Attr);
+    // final step: mul reduce result and -1
+    return builder->create<nova::MulOp>(op.getLoc(), reducemeanres, minus1);
+  }
+
+  template <typename OpTy>
+  static Value maptop(OpTy op, Type resultType, ValueRange input,
+                      OpBuilder *builder) {
+    return mappingtosa(op, resultType, input, builder);
+  }
+
+private:
+  template <typename OpTy>
+  static Value mappingtosa(OpTy op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    return nullptr;
+  }
+};
+
+// pattern to convert nova.gelu to seauence of operations
+/// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+struct NovaGeluOpLowering : public OpConversionPattern<GeluOp> {
+  using OpConversionPattern<GeluOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(GeluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getLhs();
+    // if input is integer, cast to float and update type for following ops
+    auto inputType = cast<RankedTensorType>(input.getType());
+    if (isa<IntegerType>(inputType.getElementType())) {
+      auto newInputType = RankedTensorType::get(
+          inputType.getShape(), rewriter.getF32Type(), inputType.getEncoding());
+      input = rewriter.create<tosa::CastOp>(loc, newInputType, input);
+      inputType = newInputType;
+    }
+    // op0 = pow(x, 3)
+    Value cst_3 = rewriter.create<nova::ConstantOp>(
+        loc, inputType, DenseElementsAttr::get(inputType, {3.0f}));
+    auto op0 = rewriter.create<tosa::PowOp>(loc, inputType, input, cst_3);
+    // op1 = mul(op0, 0.044715)
+    Value cst_004 = rewriter.create<nova::ConstantOp>(
+        loc, inputType, DenseElementsAttr::get(inputType, {4.471500e-02f}));
+    auto op1 = rewriter.create<nova::MulOp>(loc, inputType, op0, cst_004);
+    // op2 = add(x, op1)
+    auto op2 = rewriter.create<tosa::AddOp>(loc, inputType, input, op1);
+    // op3 = mul(op2, sqrt(2/pi))
+    Value cst_sqrt2pi = rewriter.create<nova::ConstantOp>(
+        loc, inputType, DenseElementsAttr::get(inputType, {0.797884583f}));
+    auto op3 = rewriter.create<nova::MulOp>(loc, inputType, op2, cst_sqrt2pi);
+    // op4 = tanh(op3)
+    auto op4 = rewriter.create<tosa::TanhOp>(loc, inputType, op3);
+    // op5 = add(op4 ,1)
+    Value cst_1 = rewriter.create<nova::ConstantOp>(
+        loc, inputType, DenseElementsAttr::get(inputType, {1.0f}));
+    auto op5 = rewriter.create<tosa::AddOp>(loc, inputType, op4, cst_1);
+    // op6 = mul(x, 0.5)
+    Value cst_05 = rewriter.create<nova::ConstantOp>(
+        loc, inputType, DenseElementsAttr::get(inputType, {0.5f}));
+    auto op6 = rewriter.create<nova::MulOp>(loc, inputType, input, cst_05);
+
+    auto op7 = rewriter.create<nova::MulOp>(loc, inputType, op6, op5);
+
+    rewriter.replaceOp(op, {op7.getResult()});
+
+    return success();
+  }
+};
+// Pattern to convert nova.relu to tosa.relu
+struct NovaReluOpLowering : public OpConversionPattern<ReluOp> {
+  using OpConversionPattern<ReluOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ReluOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    auto inputType = cast<RankedTensorType>(input.getType());
+    Type elementType = inputType.getElementType();
+
+    // Create zero constant tensor with the same shape as input
+    Attribute zeroAttr;
+
+    if (auto floatType = dyn_cast<FloatType>(elementType)) {
+      APFloat zeroVal = APFloat::getZero(floatType.getFloatSemantics());
+      zeroAttr = rewriter.getFloatAttr(floatType, zeroVal);
+    } else if (auto intType = dyn_cast<IntegerType>(elementType)) {
+      zeroAttr = rewriter.getIntegerAttr(intType, 0);
+    } else {
+      return failure();
+    }
+    DenseElementsAttr zeroTensor = DenseElementsAttr::get(inputType, zeroAttr);
+    Value zero = rewriter.create<nova::ConstantOp>(loc, inputType, zeroTensor);
+    Value result =
+        rewriter.create<tosa::MaximumOp>(loc, inputType, input, zero);
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+// creating a  lowering for softmax
+struct NovaSoftmaxLoweringPattern : public OpConversionPattern<SoftmaxOp> {
+  using OpConversionPattern<SoftmaxOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(SoftmaxOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    Location loc = op.getLoc();
+    Value input = adaptor.getInput();
+    auto restype = cast<RankedTensorType>(op.getType());
+    auto inputType = cast<RankedTensorType>(input.getType());
+    auto size = inputType.getShape().size();
+    int32_t dimension =
+        op.getDimension().has_value() ? op.getDimension().value() : -1;
+    if (dimension < 0) {
+      //  auto size1=inputType.getShape().size() - 1;
+      dimension += size;
+    }
+    SmallVector<int64_t> dim;
+    dim.push_back(dimension);
+
+    auto shape = NovaOpTosaOp::shapeFind(inputType, dimension);
+    auto tempresult = RankedTensorType::get(shape, restype.getElementType(),
+                                            restype.getEncoding());
+    // creating cast - only if element types differ
+    if (inputType.getElementType() != restype.getElementType()) {
+      input = rewriter.create<tosa::CastOp>(loc, restype, input);
+    }
+
+    auto axisAttr = rewriter.getI32IntegerAttr(dimension);
+    Value op1 =
+        rewriter.create<tosa::ReduceMaxOp>(loc, tempresult, input, axisAttr);
+
+    // step2
+    // create a TOSA sub op with input and op1
+    Value op2 = rewriter.create<tosa::SubOp>(loc, restype, input, op1);
+    // step3
+    // create  a TOSA exp op
+    Value op3 = rewriter.create<tosa::ExpOp>(loc, restype, op2);
+    // step4
+    // create a TOSA reduce sum
+    Value op4 =
+        rewriter.create<tosa::ReduceSumOp>(loc, tempresult, op3, axisAttr);
+
+    // step 5
+    // Explicitly broadcast op4 to match op3's shape for division
+    // op3 is tensor<8x128x128xf32>, op4 is tensor<8x128x1xf32>
+    // We need to tile op4 along dimension 2 to broadcast it
+    SmallVector<int64_t> multiples;
+    auto op3Shape = cast<RankedTensorType>(op3.getType()).getShape();
+    auto op4Shape = cast<RankedTensorType>(op4.getType()).getShape();
+    for (size_t i = 0; i < op3Shape.size(); ++i) {
+      if (i < op4Shape.size()) {
+        multiples.push_back(op3Shape[i] / op4Shape[i]);
+      } else {
+        multiples.push_back(1);
+      }
+    }
+
+    auto shapeType = RankedTensorType::get(
+        {static_cast<int64_t>(multiples.size())}, rewriter.getIndexType());
+    auto shapeAttr = DenseIntElementsAttr::get(shapeType, multiples);
+    Value multiplesConst = rewriter.create<tosa::ConstShapeOp>(
+        loc,
+        mlir::tosa::shapeType::get(rewriter.getContext(), multiples.size()),
+        shapeAttr);
+
+    Value op4_broadcast =
+        rewriter.create<tosa::TileOp>(loc, restype, op4, multiplesConst);
+
+    // create TOSA div: reciprocal(op4_broadcast) * op3
+    Value recip =
+        rewriter.create<tosa::ReciprocalOp>(loc, restype, op4_broadcast);
+    auto shift = rewriter.create<mlir::arith::ConstantOp>(
+        loc,
+        DenseElementsAttr::get(RankedTensorType::get({1}, rewriter.getI8Type()),
+                               rewriter.getI8IntegerAttr(0)));
+    Value op5 = rewriter.create<tosa::MulOp>(loc, restype, op3, recip, shift);
+    rewriter.replaceOp(op, op5);
+
       }
     };
   
 
-    // //-----------------------------------------------------------------------------
-    // // Matmul lowering
-    // //-----------------------------------------------------------------------------
-    
-    // struct NovaMatmulOpTosaLowering : public OpConversionPattern<MatmulOp>
-    // {
-    //   using OpConversionPattern<MatmulOp>::OpConversionPattern;
-      
-    //   // Helper function to create a tosa.ConstShapeOp
-    //   Value createConstShapeOp(ConversionPatternRewriter &rewriter, Location loc,
-    //                            ArrayRef<int64_t> shape) const {
-    //     auto shapeType = RankedTensorType::get({static_cast<int64_t>(shape.size())}, 
-    //                                             rewriter.getIndexType());
-    //     auto shapeAttr = DenseIntElementsAttr::get(shapeType, shape);
-    //     return rewriter.create<tosa::ConstShapeOp>(
-    //         loc, 
-    //         mlir::tosa::shapeType::get(rewriter.getContext(), shape.size()), 
-    //         shapeAttr);
-    //   }
+// //-----------------------------------------------------------------------------
+// // Matmul lowering
+// //-----------------------------------------------------------------------------
 
+// struct NovaMatmulOpTosaLowering : public OpConversionPattern<MatmulOp>
+// {
+//   using OpConversionPattern<MatmulOp>::OpConversionPattern;
 
-    //   // Helper function to broadcast input to match target batch shape
-    //   Value broadcastToShape(Value input, ArrayRef<int64_t> targetBatchShape,
-    //                          ConversionPatternRewriter &rewriter, Location loc) const {
-    //     auto inputType = cast<RankedTensorType>(input.getType());
-    //     auto inputShape = inputType.getShape();
-    //     int64_t inputRank = inputType.getRank();
-    //     int64_t targetBatchRank = targetBatchShape.size();
-    //     int64_t inputBatchRank = inputRank - 2;
+//   // Helper function to create a tosa.ConstShapeOp
+//   Value createConstShapeOp(ConversionPatternRewriter &rewriter, Location loc,
+//                            ArrayRef<int64_t> shape) const {
+//     auto shapeType =
+//     RankedTensorType::get({static_cast<int64_t>(shape.size())},
+//                                             rewriter.getIndexType());
+//     auto shapeAttr = DenseIntElementsAttr::get(shapeType, shape);
+//     return rewriter.create<tosa::ConstShapeOp>(
+//         loc,
+//         mlir::tosa::shapeType::get(rewriter.getContext(), shape.size()),
+//         shapeAttr);
+//   }
 
-    //     // Reshape to align ranks 
-    //     SmallVector<int64_t> reshapedShape;
-    //     int64_t rankDiff = targetBatchRank - inputBatchRank;
-        
-    //     if (rankDiff > 0) {
-    //       for (int64_t i = 0; i < rankDiff; ++i) reshapedShape.push_back(1);
-    //     }
-    //     for (int64_t dim : inputShape) reshapedShape.push_back(dim);
+//   // Helper function to broadcast input to match target batch shape
+//   Value broadcastToShape(Value input, ArrayRef<int64_t> targetBatchShape,
+//                          ConversionPatternRewriter &rewriter, Location loc)
+//                          const {
+//     auto inputType = cast<RankedTensorType>(input.getType());
+//     auto inputShape = inputType.getShape();
+//     int64_t inputRank = inputType.getRank();
+//     int64_t targetBatchRank = targetBatchShape.size();
+//     int64_t inputBatchRank = inputRank - 2;
 
-    //     Value currentVal = input;
-    //     if (rankDiff > 0) {
-    //       auto reshapedType = RankedTensorType::get(reshapedShape, inputType.getElementType());
-    //       Value shapeConst = createConstShapeOp(rewriter, loc, reshapedShape);
-    //       currentVal = rewriter.create<tosa::ReshapeOp>(loc, reshapedType, input, shapeConst);
-    //     }
+//     // Reshape to align ranks
+//     SmallVector<int64_t> reshapedShape;
+//     int64_t rankDiff = targetBatchRank - inputBatchRank;
 
-    //     // Tile to broadcast dimensions
-    //     SmallVector<int64_t> multiples;
-    //     bool needsTiling = false;
-        
-    //     for (int64_t i = 0; i < targetBatchRank; ++i) {
-    //       int64_t inputDim = reshapedShape[i];
-    //       int64_t targetDim = targetBatchShape[i];
-          
-    //       if (inputDim == 1 && targetDim > 1) {
-    //         multiples.push_back(targetDim);
-    //         needsTiling = true;
-    //       } else {
-    //         multiples.push_back(1);
-    //       }
-    //     }
-    //     // Matrix dims
-    //     multiples.push_back(1);
-    //     multiples.push_back(1);
+//     if (rankDiff > 0) {
+//       for (int64_t i = 0; i < rankDiff; ++i) reshapedShape.push_back(1);
+//     }
+//     for (int64_t dim : inputShape) reshapedShape.push_back(dim);
 
-    //     if (needsTiling) {
-    //       Value multiplesConst = createConstShapeOp(rewriter, loc, multiples);
-          
-    //       SmallVector<int64_t> tiledShape;
-    //       for (int64_t dim : targetBatchShape) tiledShape.push_back(dim);
-    //       tiledShape.push_back(reshapedShape[reshapedShape.size()-2]);
-    //       tiledShape.push_back(reshapedShape[reshapedShape.size()-1]);
-          
-    //       auto tiledType = RankedTensorType::get(tiledShape, inputType.getElementType());
-    //       currentVal = rewriter.create<tosa::TileOp>(loc, tiledType, currentVal, multiplesConst);
-    //     }
-        
-    //     return currentVal;
-    //   }
-      
-    //   LogicalResult matchAndRewrite(MatmulOp op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override
-    //   {
-    //     auto operands = adaptor.getOperands();
+//     Value currentVal = input;
+//     if (rankDiff > 0) {
+//       auto reshapedType = RankedTensorType::get(reshapedShape,
+//       inputType.getElementType()); Value shapeConst =
+//       createConstShapeOp(rewriter, loc, reshapedShape); currentVal =
+//       rewriter.create<tosa::ReshapeOp>(loc, reshapedType, input, shapeConst);
+//     }
 
-    //     if (operands.size() != 2)
-    //     {
-    //       return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
-    //     }
+//     // Tile to broadcast dimensions
+//     SmallVector<int64_t> multiples;
+//     bool needsTiling = false;
 
-    //     Value lhs = operands[0];
-    //     Value rhs = operands[1];
+//     for (int64_t i = 0; i < targetBatchRank; ++i) {
+//       int64_t inputDim = reshapedShape[i];
+//       int64_t targetDim = targetBatchShape[i];
 
-    //     auto lhsType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
-    //     auto rhsType = llvm::dyn_cast<RankedTensorType>(rhs.getType());
-    //     auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
+//       if (inputDim == 1 && targetDim > 1) {
+//         multiples.push_back(targetDim);
+//         needsTiling = true;
+//       } else {
+//         multiples.push_back(1);
+//       }
+//     }
+//     // Matrix dims
+//     multiples.push_back(1);
+//     multiples.push_back(1);
 
-    //     if (!lhsType || !rhsType || !resultType)
-    //     {
-    //       return rewriter.notifyMatchFailure(op, "expected ranked tensor types");
-    //     }
+//     if (needsTiling) {
+//       Value multiplesConst = createConstShapeOp(rewriter, loc, multiples);
 
-    //     Location loc = op.getLoc();
-    //     int64_t resultRank = resultType.getRank();
+//       SmallVector<int64_t> tiledShape;
+//       for (int64_t dim : targetBatchShape) tiledShape.push_back(dim);
+//       tiledShape.push_back(reshapedShape[reshapedShape.size()-2]);
+//       tiledShape.push_back(reshapedShape[reshapedShape.size()-1]);
 
-    //     // Case 1: 2D matmul - reshape to 3D, do matmul, reshape back to 2D
-    //     if (resultRank == 2)
-    //     {
-    //       // [M, K] x [K, N] -> [M, N]
-    //       // Reshape to [1, M, K] x [1, K, N] -> [1, M, N]
-    //       SmallVector<int64_t> lhs3DShape = {1, lhsType.getShape()[0], lhsType.getShape()[1]};
-    //       SmallVector<int64_t> rhs3DShape = {1, rhsType.getShape()[0], rhsType.getShape()[1]};
-    //       SmallVector<int64_t> result3DShape = {1, resultType.getShape()[0], resultType.getShape()[1]};
+//       auto tiledType = RankedTensorType::get(tiledShape,
+//       inputType.getElementType()); currentVal =
+//       rewriter.create<tosa::TileOp>(loc, tiledType, currentVal,
+//       multiplesConst);
+//     }
 
-    //       auto lhs3DType = RankedTensorType::get(lhs3DShape, lhsType.getElementType());
-    //       auto rhs3DType = RankedTensorType::get(rhs3DShape, rhsType.getElementType());
-    //       auto result3DType = RankedTensorType::get(result3DShape, resultType.getElementType());
+//     return currentVal;
+//   }
 
-    //       Value lhs3DShapeValue = createConstShapeOp(rewriter, loc, lhs3DShape);
-    //       Value rhs3DShapeValue = createConstShapeOp(rewriter, loc, rhs3DShape);
-    //       SmallVector<int64_t> result2DShapeVec(resultType.getShape().begin(), resultType.getShape().end());
-    //       Value result2DShapeValue = createConstShapeOp(rewriter, loc, result2DShapeVec);
+//   LogicalResult matchAndRewrite(MatmulOp op, OpAdaptor adaptor,
+//   ConversionPatternRewriter &rewriter) const override
+//   {
+//     auto operands = adaptor.getOperands();
 
-    //       Value lhs3D = rewriter.create<tosa::ReshapeOp>(loc, lhs3DType, lhs, lhs3DShapeValue);
-    //       Value rhs3D = rewriter.create<tosa::ReshapeOp>(loc, rhs3DType, rhs, rhs3DShapeValue);
+//     if (operands.size() != 2)
+//     {
+//       return rewriter.notifyMatchFailure(op, "expected exactly 2 operands");
+//     }
 
-    //       Value matmul3D = rewriter.create<tosa::MatMulOp>(loc, result3DType, lhs3D, rhs3D);
+//     Value lhs = operands[0];
+//     Value rhs = operands[1];
 
-    //       rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, matmul3D, result2DShapeValue);
-    //       return success();
-    //     }
+//     auto lhsType = llvm::dyn_cast<RankedTensorType>(lhs.getType());
+//     auto rhsType = llvm::dyn_cast<RankedTensorType>(rhs.getType());
+//     auto resultType = llvm::dyn_cast<RankedTensorType>(op.getType());
 
-    //     // Case 2: 3D matmul - may need broadcasting
-    //     if (resultRank == 3)
-    //     {
-    //       int64_t batchDim = resultType.getShape()[0];
+//     if (!lhsType || !rhsType || !resultType)
+//     {
+//       return rewriter.notifyMatchFailure(op, "expected ranked tensor types");
+//     }
 
-    //       // Broadcast lhs if needed
-    //       if (lhsType.getRank() == 2) {
-    //         // [M, K] -> [1, M, K] -> [B, M, K]
-    //         // Step 1: Reshape to add batch dimension
-    //         SmallVector<int64_t> lhs3DShapeWith1 = {1, lhsType.getShape()[0], lhsType.getShape()[1]};
-    //         auto lhs3DTypeWith1 = RankedTensorType::get(lhs3DShapeWith1, lhsType.getElementType());
-    //         Value lhs3DShapeWith1Value = createConstShapeOp(rewriter, loc, lhs3DShapeWith1);
-    //         Value lhsReshaped = rewriter.create<tosa::ReshapeOp>(loc, lhs3DTypeWith1, lhs, lhs3DShapeWith1Value);
-            
-    //         // Step 2: Tile to broadcast if batch > 1
-    //         if (batchDim > 1) {
-    //           SmallVector<int64_t> multiples = {static_cast<int64_t>(batchDim), 1, 1};
-    //           // Create const for multiples 
-    //           Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
+//     Location loc = op.getLoc();
+//     int64_t resultRank = resultType.getRank();
 
-    //           SmallVector<int64_t> lhsBroadcastShape = {batchDim, lhsType.getShape()[0], lhsType.getShape()[1]};
-    //           auto lhsBroadcastType = RankedTensorType::get(lhsBroadcastShape, lhsType.getElementType());
-    //           lhs = rewriter.create<tosa::TileOp>(loc, lhsBroadcastType, lhsReshaped, multiplesValue);
-    //         } else {
-    //           lhs = lhsReshaped;
-    //         }
-    //       } else if (lhsType.getRank() == 3 && lhsType.getShape()[0] == 1 && batchDim > 1) {
-    //         // [1, M, K] -> [B, M, K] - just tile
-    //         SmallVector<int64_t> multiples = {batchDim, 1, 1};
-    //         Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
-            
-    //         SmallVector<int64_t> lhsBroadcastShape = {batchDim, lhsType.getShape()[1], lhsType.getShape()[2]};
-    //         auto lhsBroadcastType = RankedTensorType::get(lhsBroadcastShape, lhsType.getElementType());
-    //         lhs = rewriter.create<tosa::TileOp>(loc, lhsBroadcastType, lhs, multiplesValue);
-    //       }
+//     // Case 1: 2D matmul - reshape to 3D, do matmul, reshape back to 2D
+//     if (resultRank == 2)
+//     {
+//       // [M, K] x [K, N] -> [M, N]
+//       // Reshape to [1, M, K] x [1, K, N] -> [1, M, N]
+//       SmallVector<int64_t> lhs3DShape = {1, lhsType.getShape()[0],
+//       lhsType.getShape()[1]}; SmallVector<int64_t> rhs3DShape = {1,
+//       rhsType.getShape()[0], rhsType.getShape()[1]}; SmallVector<int64_t>
+//       result3DShape = {1, resultType.getShape()[0],
+//       resultType.getShape()[1]};
 
-    //       // Broadcast rhs if needed
-    //       if (rhsType.getRank() == 2) {
-    //         // [K, N] -> [1, K, N] -> [B, K, N]
-    //         // Step 1: Reshape to add batch dimension
-    //         SmallVector<int64_t> rhs3DShapeWith1 = {1, rhsType.getShape()[0], rhsType.getShape()[1]};
-    //         auto rhs3DTypeWith1 = RankedTensorType::get(rhs3DShapeWith1, rhsType.getElementType());
-    //         Value rhs3DShapeWith1Value = createConstShapeOp(rewriter, loc, rhs3DShapeWith1);
-    //         Value rhsReshaped = rewriter.create<tosa::ReshapeOp>(loc, rhs3DTypeWith1, rhs, rhs3DShapeWith1Value);
-            
-    //         // Step 2: Tile to broadcast if batch > 1
-    //         if (batchDim > 1) {
-    //           SmallVector<int64_t> multiples = {static_cast<int64_t>(batchDim), 1, 1};
-    //           Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
-              
-    //           SmallVector<int64_t> rhsBroadcastShape = {batchDim, rhsType.getShape()[0], rhsType.getShape()[1]};
-    //           auto rhsBroadcastType = RankedTensorType::get(rhsBroadcastShape, rhsType.getElementType());
-    //           rhs = rewriter.create<tosa::TileOp>(loc, rhsBroadcastType, rhsReshaped, multiplesValue);
-    //         } else {
-    //           rhs = rhsReshaped;
-    //         }
-    //       } else if (rhsType.getRank() == 3 && rhsType.getShape()[0] == 1 && batchDim > 1) {
-    //         // [1, K, N] -> [B, K, N] - just tile
-    //         SmallVector<int64_t> multiples = {batchDim, 1, 1};
-    //         Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
-           
-    //         SmallVector<int64_t> rhsBroadcastShape = {batchDim, rhsType.getShape()[1], rhsType.getShape()[2]};
-    //         auto rhsBroadcastType = RankedTensorType::get(rhsBroadcastShape, rhsType.getElementType());
-    //         rhs = rewriter.create<tosa::TileOp>(loc, rhsBroadcastType, rhs, multiplesValue);
-    //       }
+//       auto lhs3DType = RankedTensorType::get(lhs3DShape,
+//       lhsType.getElementType()); auto rhs3DType =
+//       RankedTensorType::get(rhs3DShape, rhsType.getElementType()); auto
+//       result3DType = RankedTensorType::get(result3DShape,
+//       resultType.getElementType());
 
-    //       rewriter.replaceOpWithNewOp<tosa::MatMulOp>(op, resultType, lhs, rhs);
-    //       return success();
-    //     }
+//       Value lhs3DShapeValue = createConstShapeOp(rewriter, loc, lhs3DShape);
+//       Value rhs3DShapeValue = createConstShapeOp(rewriter, loc, rhs3DShape);
+//       SmallVector<int64_t> result2DShapeVec(resultType.getShape().begin(),
+//       resultType.getShape().end()); Value result2DShapeValue =
+//       createConstShapeOp(rewriter, loc, result2DShapeVec);
 
-    //     // Case 3: rank > 3 - flatten batch dimensions, do matmul, reshape back
+//       Value lhs3D = rewriter.create<tosa::ReshapeOp>(loc, lhs3DType, lhs,
+//       lhs3DShapeValue); Value rhs3D = rewriter.create<tosa::ReshapeOp>(loc,
+//       rhs3DType, rhs, rhs3DShapeValue);
 
-    //     // Broadcast inputs to match result batch dimensions
-    //     SmallVector<int64_t> targetBatchShape;
-    //     for (int64_t i = 0; i < resultRank - 2; ++i) {
-    //       targetBatchShape.push_back(resultType.getShape()[i]);
-    //     }
-        
-    //     Value broadcastLhs = broadcastToShape(lhs, targetBatchShape, rewriter, loc);
-    //     Value broadcastRhs = broadcastToShape(rhs, targetBatchShape, rewriter, loc);
-        
-    //     // Update types after broadcasting
-    //     auto broadcastLhsType = cast<RankedTensorType>(broadcastLhs.getType());
-    //     //auto broadcastRhsType = cast<RankedTensorType>(broadcastRhs.getType());
+//       Value matmul3D = rewriter.create<tosa::MatMulOp>(loc, result3DType,
+//       lhs3D, rhs3D);
 
-    //     // Calculate the flattened batch size
-    //     int64_t N = 1;
-    //     for (int64_t dim : targetBatchShape) {
-    //       N *= dim;
-    //     }
+//       rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, matmul3D,
+//       result2DShapeValue); return success();
+//     }
 
-    //     int64_t M = resultType.getShape()[resultRank - 2];
-    //     int64_t K = broadcastLhsType.getShape()[broadcastLhsType.getRank() - 1];
-    //     int64_t N_cols = resultType.getShape()[resultRank - 1];
+//     // Case 2: 3D matmul - may need broadcasting
+//     if (resultRank == 3)
+//     {
+//       int64_t batchDim = resultType.getShape()[0];
 
-    //     SmallVector<int64_t> rank3_lhs_shape({N, M, K});
-    //     SmallVector<int64_t> rank3_rhs_shape({N, K, N_cols});
-    //     SmallVector<int64_t> rank3_output_shape({N, M, N_cols});
+//       // Broadcast lhs if needed
+//       if (lhsType.getRank() == 2) {
+//         // [M, K] -> [1, M, K] -> [B, M, K]
+//         // Step 1: Reshape to add batch dimension
+//         SmallVector<int64_t> lhs3DShapeWith1 = {1, lhsType.getShape()[0],
+//         lhsType.getShape()[1]}; auto lhs3DTypeWith1 =
+//         RankedTensorType::get(lhs3DShapeWith1, lhsType.getElementType());
+//         Value lhs3DShapeWith1Value = createConstShapeOp(rewriter, loc,
+//         lhs3DShapeWith1); Value lhsReshaped =
+//         rewriter.create<tosa::ReshapeOp>(loc, lhs3DTypeWith1, lhs,
+//         lhs3DShapeWith1Value);
 
-    //     auto rank3LhsType = RankedTensorType::get(rank3_lhs_shape, lhsType.getElementType());
-    //     auto rank3RhsType = RankedTensorType::get(rank3_rhs_shape, rhsType.getElementType());
-    //     auto rank3OutputType = RankedTensorType::get(rank3_output_shape, resultType.getElementType());
+//         // Step 2: Tile to broadcast if batch > 1
+//         if (batchDim > 1) {
+//           SmallVector<int64_t> multiples = {static_cast<int64_t>(batchDim),
+//           1, 1};
+//           // Create const for multiples
+//           Value multiplesValue = createConstShapeOp(rewriter, loc,
+//           multiples);
 
-    //     Value rank3LhsShapeValue = createConstShapeOp(rewriter, loc, rank3_lhs_shape);
-    //     Value rank3RhsShapeValue = createConstShapeOp(rewriter, loc, rank3_rhs_shape);
-    //     SmallVector<int64_t> resultShapeVec(resultType.getShape().begin(), resultType.getShape().end());
-    //     Value resultShapeValue = createConstShapeOp(rewriter, loc, resultShapeVec);
+//           SmallVector<int64_t> lhsBroadcastShape = {batchDim,
+//           lhsType.getShape()[0], lhsType.getShape()[1]}; auto
+//           lhsBroadcastType = RankedTensorType::get(lhsBroadcastShape,
+//           lhsType.getElementType()); lhs = rewriter.create<tosa::TileOp>(loc,
+//           lhsBroadcastType, lhsReshaped, multiplesValue);
+//         } else {
+//           lhs = lhsReshaped;
+//         }
+//       } else if (lhsType.getRank() == 3 && lhsType.getShape()[0] == 1 &&
+//       batchDim > 1) {
+//         // [1, M, K] -> [B, M, K] - just tile
+//         SmallVector<int64_t> multiples = {batchDim, 1, 1};
+//         Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
 
-    //     Value lhsReshaped = rewriter.create<tosa::ReshapeOp>(loc, rank3LhsType, broadcastLhs, rank3LhsShapeValue);
-    //     Value rhsReshaped = rewriter.create<tosa::ReshapeOp>(loc, rank3RhsType, broadcastRhs, rank3RhsShapeValue);
+//         SmallVector<int64_t> lhsBroadcastShape = {batchDim,
+//         lhsType.getShape()[1], lhsType.getShape()[2]}; auto lhsBroadcastType
+//         = RankedTensorType::get(lhsBroadcastShape, lhsType.getElementType());
+//         lhs = rewriter.create<tosa::TileOp>(loc, lhsBroadcastType, lhs,
+//         multiplesValue);
+//       }
 
-    //     Value matmul = rewriter.create<tosa::MatMulOp>(loc, rank3OutputType, lhsReshaped, rhsReshaped);
+//       // Broadcast rhs if needed
+//       if (rhsType.getRank() == 2) {
+//         // [K, N] -> [1, K, N] -> [B, K, N]
+//         // Step 1: Reshape to add batch dimension
+//         SmallVector<int64_t> rhs3DShapeWith1 = {1, rhsType.getShape()[0],
+//         rhsType.getShape()[1]}; auto rhs3DTypeWith1 =
+//         RankedTensorType::get(rhs3DShapeWith1, rhsType.getElementType());
+//         Value rhs3DShapeWith1Value = createConstShapeOp(rewriter, loc,
+//         rhs3DShapeWith1); Value rhsReshaped =
+//         rewriter.create<tosa::ReshapeOp>(loc, rhs3DTypeWith1, rhs,
+//         rhs3DShapeWith1Value);
 
-    //     rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, matmul, resultShapeValue);
-    //     return success();
-    //   }
-    // };
-    
-    
-    
-    // creating a template
-    template <typename NovaTopTy>
-    class NovaToTosaLoweringTemplate : public OpConversionPattern<NovaTopTy>
-    {
-    public:
-      using OpConversionPattern<NovaTopTy>::OpConversionPattern;
-      using OpAdaptor = typename NovaTopTy::Adaptor; // for getting all meta data dynamically using adaptor
-      LogicalResult matchAndRewrite(NovaTopTy op, OpAdaptor adaptor, ConversionPatternRewriter &rewriter) const override
-      {
-        ValueRange operands = adaptor.getOperands();
-        // checking operand is empty or not
-        if (operands.empty())
-          return rewriter.notifyMatchFailure(op, "expected operands for tosa lowering operations");
-        // getting resultType
-        auto resultType = op.getResult().getType();
-        Value result = NovaOpTosaOp::maptop(
-            op, resultType, operands, &rewriter);
-        if (!result)
-          return rewriter.notifyMatchFailure(op, "failed to map to TOSA operation");
+//         // Step 2: Tile to broadcast if batch > 1
+//         if (batchDim > 1) {
+//           SmallVector<int64_t> multiples = {static_cast<int64_t>(batchDim),
+//           1, 1}; Value multiplesValue = createConstShapeOp(rewriter, loc,
+//           multiples);
 
-        rewriter.replaceOp(op, result);
-        return success();
-      }
-    };
-struct NovaConstantToTosaConstPattern : public OpConversionPattern<nova::ConstantOp> {
+//           SmallVector<int64_t> rhsBroadcastShape = {batchDim,
+//           rhsType.getShape()[0], rhsType.getShape()[1]}; auto
+//           rhsBroadcastType = RankedTensorType::get(rhsBroadcastShape,
+//           rhsType.getElementType()); rhs = rewriter.create<tosa::TileOp>(loc,
+//           rhsBroadcastType, rhsReshaped, multiplesValue);
+//         } else {
+//           rhs = rhsReshaped;
+//         }
+//       } else if (rhsType.getRank() == 3 && rhsType.getShape()[0] == 1 &&
+//       batchDim > 1) {
+//         // [1, K, N] -> [B, K, N] - just tile
+//         SmallVector<int64_t> multiples = {batchDim, 1, 1};
+//         Value multiplesValue = createConstShapeOp(rewriter, loc, multiples);
+
+//         SmallVector<int64_t> rhsBroadcastShape = {batchDim,
+//         rhsType.getShape()[1], rhsType.getShape()[2]}; auto rhsBroadcastType
+//         = RankedTensorType::get(rhsBroadcastShape, rhsType.getElementType());
+//         rhs = rewriter.create<tosa::TileOp>(loc, rhsBroadcastType, rhs,
+//         multiplesValue);
+//       }
+
+//       rewriter.replaceOpWithNewOp<tosa::MatMulOp>(op, resultType, lhs, rhs);
+//       return success();
+//     }
+
+//     // Case 3: rank > 3 - flatten batch dimensions, do matmul, reshape back
+
+//     // Broadcast inputs to match result batch dimensions
+//     SmallVector<int64_t> targetBatchShape;
+//     for (int64_t i = 0; i < resultRank - 2; ++i) {
+//       targetBatchShape.push_back(resultType.getShape()[i]);
+//     }
+
+//     Value broadcastLhs = broadcastToShape(lhs, targetBatchShape, rewriter,
+//     loc); Value broadcastRhs = broadcastToShape(rhs, targetBatchShape,
+//     rewriter, loc);
+
+//     // Update types after broadcasting
+//     auto broadcastLhsType = cast<RankedTensorType>(broadcastLhs.getType());
+//     //auto broadcastRhsType = cast<RankedTensorType>(broadcastRhs.getType());
+
+//     // Calculate the flattened batch size
+//     int64_t N = 1;
+//     for (int64_t dim : targetBatchShape) {
+//       N *= dim;
+//     }
+
+//     int64_t M = resultType.getShape()[resultRank - 2];
+//     int64_t K = broadcastLhsType.getShape()[broadcastLhsType.getRank() - 1];
+//     int64_t N_cols = resultType.getShape()[resultRank - 1];
+
+//     SmallVector<int64_t> rank3_lhs_shape({N, M, K});
+//     SmallVector<int64_t> rank3_rhs_shape({N, K, N_cols});
+//     SmallVector<int64_t> rank3_output_shape({N, M, N_cols});
+
+//     auto rank3LhsType = RankedTensorType::get(rank3_lhs_shape,
+//     lhsType.getElementType()); auto rank3RhsType =
+//     RankedTensorType::get(rank3_rhs_shape, rhsType.getElementType()); auto
+//     rank3OutputType = RankedTensorType::get(rank3_output_shape,
+//     resultType.getElementType());
+
+//     Value rank3LhsShapeValue = createConstShapeOp(rewriter, loc,
+//     rank3_lhs_shape); Value rank3RhsShapeValue = createConstShapeOp(rewriter,
+//     loc, rank3_rhs_shape); SmallVector<int64_t>
+//     resultShapeVec(resultType.getShape().begin(),
+//     resultType.getShape().end()); Value resultShapeValue =
+//     createConstShapeOp(rewriter, loc, resultShapeVec);
+
+//     Value lhsReshaped = rewriter.create<tosa::ReshapeOp>(loc, rank3LhsType,
+//     broadcastLhs, rank3LhsShapeValue); Value rhsReshaped =
+//     rewriter.create<tosa::ReshapeOp>(loc, rank3RhsType, broadcastRhs,
+//     rank3RhsShapeValue);
+
+//     Value matmul = rewriter.create<tosa::MatMulOp>(loc, rank3OutputType,
+//     lhsReshaped, rhsReshaped);
+
+//     rewriter.replaceOpWithNewOp<tosa::ReshapeOp>(op, resultType, matmul,
+//     resultShapeValue); return success();
+//   }
+// };
+
+// creating a template
+template <typename NovaTopTy>
+class NovaToTosaLoweringTemplate : public OpConversionPattern<NovaTopTy> {
+public:
+  using OpConversionPattern<NovaTopTy>::OpConversionPattern;
+  using OpAdaptor = typename NovaTopTy::Adaptor; // for getting all meta data
+                                                 // dynamically using adaptor
+  LogicalResult
+  matchAndRewrite(NovaTopTy op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::errs() << "NovaToTosaLoweringTemplate matching "
+                 << op->getName().getStringRef() << "\n";
+    ValueRange operands = adaptor.getOperands();
+    // checking operand is empty or not
+    if (operands.empty())
+      return rewriter.notifyMatchFailure(
+          op, "expected operands for tosa lowering operations");
+    // getting resultType
+    auto resultType = op.getResult().getType();
+    Value result = NovaOpTosaOp::maptop(op, resultType, operands, &rewriter);
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "failed to map to TOSA operation");
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+struct NovaConstantToTosaConstPattern
+    : public OpConversionPattern<nova::ConstantOp> {
   using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
 
   LogicalResult
@@ -1495,50 +1932,51 @@ struct NovaToTosaLoweringPass
     ModuleOp module = getOperation();
     ConversionTarget target(getContext());
 
-    target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
-    target.addLegalOp<nova::ConstantOp>();
-    target.addIllegalOp<nova::ReluOp>();
-    target.addIllegalOp<nova::ExpOp>();
-    target.addIllegalOp<nova::LogOp>();
-    target.addIllegalOp<nova::AbsOp>();
-    target.addIllegalOp<nova::MaxOp>();
-    target.addIllegalOp<nova::MinOp>();
-    target.addIllegalOp<nova::SubOp>();
-    target.addIllegalOp<nova::MulOp>();
-    target.addIllegalOp<nova::PowOp>();
-    target.addIllegalOp<nova::SqrtOp>();
-    target.addIllegalOp<nova::SquareOp>();
-    target.addIllegalOp<nova::AndOp>();
-    target.addIllegalOp<nova::OrOp>();
-    target.addIllegalOp<nova::XorOp>();
-    target.addIllegalOp<nova::NegOp>();
-    target.addIllegalOp<nova::NotOp>();
-    target.addIllegalOp<nova::SinOp>();
-    target.addIllegalOp<nova::CosOp>();
-    target.addIllegalOp<nova::TanhOp>();
-    target.addIllegalOp<nova::ReciprocalOp>();
-    target.addIllegalOp<nova::ReduceOp>();
-    target.addIllegalOp<nova::ArgmaxOp>();
-    target.addIllegalOp<nova::MseOp>();
-    target.addIllegalOp<nova::CceOp>();
-    target.addIllegalOp<nova::ArgMinOp>();
-    target.addIllegalOp<nova::SigmoidOp>();
-    target.addIllegalOp<nova::GeluOp>();
-    target.addIllegalOp<nova::SoftmaxOp>();
-    target.addIllegalOp<nova::BceOp>();
-    // target.addIllegalOp<nova::MatmulOp>();
-    target.addIllegalOp<nova::AddOp>();
-    target.addIllegalOp<nova::MaeOp>();
-    target.addIllegalOp<nova::TransposeOp>();
-    target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-    TypeConverter typeConverter;
-    typeConverter.addConversion([](Type type) { return type; });
-    RewritePatternSet patterns(&getContext());
-    populateNovaToTosaConversionPatterns(patterns);
-    populateNovaToTosaTemplatePatterns(patterns);
-    //  populateNovaToArithConversionPatterns(patterns);
-    //   populateNovaToLinalgPatterns(patterns);
-    // populateNovaToLinalgPatternsTemplate(patterns);
+          target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
+          target.addIllegalOp<nova::ConstantOp>();
+          target.addIllegalOp<nova::ReluOp>();
+          target.addIllegalOp<nova::ExpOp>();
+          target.addIllegalOp<nova::LogOp>();
+          target.addIllegalOp<nova::AbsOp>();
+          target.addIllegalOp<nova::MaxOp>();
+          target.addIllegalOp<nova::MinOp>();
+         target.addIllegalOp<nova::SubOp>();
+          target.addIllegalOp<nova::MulOp>();
+          target.addIllegalOp<nova::PowOp>();
+          target.addIllegalOp<nova::SqrtOp>();
+          target.addIllegalOp<nova::SquareOp>();
+          target.addIllegalOp<nova::AndOp>();
+          target.addIllegalOp<nova::OrOp>();
+          target.addIllegalOp<nova::XorOp>();
+          target.addIllegalOp<nova::NegOp>();
+          target.addIllegalOp<nova::NotOp>();
+          target.addIllegalOp<nova::SinOp>();
+          target.addIllegalOp<nova::CosOp>();
+          target.addIllegalOp<nova::TanhOp>();
+          target.addIllegalOp<nova::ReciprocalOp>();
+         target.addIllegalOp<nova::ReduceOp>();
+          target.addIllegalOp<nova::ArgmaxOp>();
+          target.addIllegalOp<nova::MseOp>();
+          target.addIllegalOp<nova::CceOp>();
+          target.addIllegalOp<nova::ArgMinOp>();
+          target.addIllegalOp<nova::SigmoidOp>();
+          target.addIllegalOp<nova::GeluOp>();
+          target.addIllegalOp<nova::SoftmaxOp>();
+          target.addIllegalOp<nova::BceOp>();
+          //target.addIllegalOp<nova::MatmulOp>();
+          target.addIllegalOp<nova::AddOp>();
+          target.addIllegalOp<nova::MaeOp>();
+          target.addIllegalOp<nova::TransposeOp>();
+          target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+          TypeConverter typeConverter;
+          typeConverter.addConversion([](Type type)
+                                      { return type; });
+          RewritePatternSet patterns(&getContext());
+          populateNovaToTosaConversionPatterns(patterns);
+          populateNovaToTosaTemplatePatterns(patterns);
+        //  populateNovaToArithConversionPatterns(patterns);
+       //   populateNovaToLinalgPatterns(patterns);
+         // populateNovaToLinalgPatternsTemplate(patterns);
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();
@@ -1553,7 +1991,7 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
   patterns
       .add<NovaReluOpLowering, NovaGeluOpLowering, NovaSoftmaxLoweringPattern,
            //   NovaMatmulOpTosaLowering,
-            NovaConstantToTosaConstPattern,
+           NovaConstantToTosaConstPattern,
            NovaToTosaLoweringTemplate<nova::MaxOp>,
            NovaToTosaLoweringTemplate<nova::LogOp>,
            NovaToTosaLoweringTemplate<nova::AbsOp>,
@@ -1578,6 +2016,7 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
            NovaToTosaLoweringTemplate<nova::BceOp>,
            NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
            NovaToTosaLoweringTemplate<nova::ArgMinOp>,
+           //    NovaToTosaLoweringTemplate<nova::ConstantOp>,
            NovaToTosaLoweringTemplate<nova::SigmoidOp>>(patterns.getContext());
 }
 
