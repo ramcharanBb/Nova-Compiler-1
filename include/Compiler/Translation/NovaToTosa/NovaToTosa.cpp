@@ -829,7 +829,7 @@ struct NovaOpTosaOp {
     auto sub = builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
 
     mlir::RankedTensorType constType = mlir::RankedTensorType::get(
-        v_type.getShape(), builder->getF32Type(), v_type.getEncoding());
+        v_type.getShape(), builder->getF32Type());
     mlir::DenseElementsAttr constAttr =
         mlir::DenseElementsAttr::get(constType, llvm::ArrayRef<float_t>(2));
     auto constTwo =
@@ -864,14 +864,15 @@ struct NovaOpTosaOp {
         w_type.getShape(), targetElemType, w_type.getEncoding());
     auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
     // step1:creating 1x10^-7  tensor constant
+    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType);
     auto epiAttr =
-        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(0.0000001f));
-    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
+        DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(0.0000001f));
+    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), hostVType, epiAttr);
     // step2: creating one minus epsilon constant
     auto oneminusepiAttr =
-        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(1.0f));
+        DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(1.0f));
     Value ones =
-        builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+        builder->create<tosa::ConstOp>(op.getLoc(), hostVType, oneminusepiAttr);
     Value oneminusepi = builder->create<nova::SubOp>(op.getLoc(), ones, epi);
     // step3:creating compare op
     auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
@@ -895,7 +896,7 @@ struct NovaOpTosaOp {
     auto mul = builder->create<nova::MulOp>(op.getLoc(), log, w);
     // step6:create -1 constant tensor (scalar)
     auto constType =
-        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
+        mlir::RankedTensorType::get({}, targetElemType);
     auto minus1Attr =
         DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
     Value minus1 =
@@ -941,14 +942,15 @@ struct NovaOpTosaOp {
         w_type.getShape(), targetElemType, w_type.getEncoding());
     // auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
     // step1:creating 1x10^-7  tensor constant
+    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType);
     auto epiAttr =
-        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(0.0000001f));
-    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), newVType, epiAttr);
+        DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(0.0000001f));
+    Value epi = builder->create<tosa::ConstOp>(op.getLoc(), hostVType, epiAttr);
     // step2: creating one minus epsilon constant
     auto oneminusepiAttr =
-        DenseElementsAttr::get(newVType, builder->getF32FloatAttr(1.0f));
+        DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(1.0f));
     Value ones =
-        builder->create<tosa::ConstOp>(op.getLoc(), newVType, oneminusepiAttr);
+        builder->create<tosa::ConstOp>(op.getLoc(), hostVType, oneminusepiAttr);
     Value oneminusepi = builder->create<nova::SubOp>(op.getLoc(), ones, epi);
     // step3:creating compare op
     auto inputShape = cast<mlir::RankedTensorType>(v.getType()).getShape();
@@ -994,7 +996,7 @@ struct NovaOpTosaOp {
 
     // step11:create -1 constant tensor (scalar)
     auto constType =
-        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
+        mlir::RankedTensorType::get({}, targetElemType);
     auto minus1Attr =
         DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
     Value minus1 =
@@ -1019,10 +1021,10 @@ private:
 
 // pattern to convert nova.gelu to seauence of operations
 /// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-struct NovaGeluOpLowering : public OpConversionPattern<GeluOp> {
-  using OpConversionPattern<GeluOp>::OpConversionPattern;
+struct NovaGeluOpLowering : public OpConversionPattern<mlir::nova::GeluOp> {
+  using OpConversionPattern<mlir::nova::GeluOp>::OpConversionPattern;
   LogicalResult
-  matchAndRewrite(GeluOp op, OpAdaptor adaptor,
+  matchAndRewrite(mlir::nova::GeluOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value input = adaptor.getLhs();
@@ -1031,7 +1033,7 @@ struct NovaGeluOpLowering : public OpConversionPattern<GeluOp> {
     if (isa<IntegerType>(inputType.getElementType())) {
       auto newInputType = RankedTensorType::get(
           inputType.getShape(), rewriter.getF32Type(), inputType.getEncoding());
-      input = rewriter.create<tosa::CastOp>(loc, newInputType, input);
+      input = rewriter.create<mlir::tosa::CastOp>(loc, newInputType, input);
       inputType = newInputType;
     }
     // op0 = pow(x, 3)
@@ -1496,8 +1498,6 @@ public:
   LogicalResult
   matchAndRewrite(NovaTopTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::errs() << "NovaToTosaLoweringTemplate matching "
-                 << op->getName().getStringRef() << "\n";
     ValueRange operands = adaptor.getOperands();
     // checking operand is empty or not
     if (operands.empty())
@@ -1513,6 +1513,7 @@ public:
     return success();
   }
 };
+
 struct NovaConstantToTosaConstPattern
     : public OpConversionPattern<nova::ConstantOp> {
   using OpConversionPattern<nova::ConstantOp>::OpConversionPattern;
@@ -1523,8 +1524,11 @@ struct NovaConstantToTosaConstPattern
     ElementsAttr valueAttr = op.getValue();
     DenseElementsAttr value = dyn_cast<DenseElementsAttr>(valueAttr);
 
-    rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, op.getOutput().getType(),
-                                               value);
+    auto outputType = cast<RankedTensorType>(op.getOutput().getType());
+    auto hostOutputType = RankedTensorType::get(outputType.getShape(), outputType.getElementType());
+    auto hostValue = value.reshape(hostOutputType);
+    rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, hostOutputType,
+                                               hostValue);
     return success();
   }
 };
@@ -1592,9 +1596,9 @@ struct NovaToTosaLoweringPass
           TypeConverter typeConverter;
           typeConverter.addConversion([](Type type)
                                       { return type; });
-          RewritePatternSet patterns(&getContext());
-          populateNovaToTosaConversionPatterns(patterns);
-          populateNovaToTosaTemplatePatterns(patterns);
+          mlir::RewritePatternSet patterns(&getContext());
+          mlir::nova::populateNovaToTosaConversionPatterns(patterns);
+          mlir::nova::populateNovaToTosaTemplatePatterns(patterns);
         //  populateNovaToArithConversionPatterns(patterns);
        //   populateNovaToLinalgPatterns(patterns);
          // populateNovaToLinalgPatternsTemplate(patterns);

@@ -155,8 +155,11 @@ struct AddGpuMemoryCopiesPass
           OpOperand &operand = op->getOpOperand(i);
           Value val = operand.get();
           if (auto memRefType = llvm::dyn_cast<MemRefType>(val.getType())) {
-            if (isDeviceMemorySpace(memRefType.getMemorySpace()))
-              continue;
+            if (isDeviceMemorySpace(memRefType.getMemorySpace())) {
+              // If it's a constant global, we still need to shadow it to ensure it's actually on the device
+              if (!isReadOnly(val, symbolTable))
+                continue;
+            }
 
             // It's a host memref used in GPU. Check if it's defined outside
             // this launch.
