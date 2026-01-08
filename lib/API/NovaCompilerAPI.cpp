@@ -1,7 +1,8 @@
-#include "mlir/InitAllPasses.h"
 #include "Compiler/API/NovaCompilerAPI.h"
 #include "Compiler/Pipeline/Pipeline.h"
 #include "Compiler/Dialect/nova/NovaDialect.h"
+#include "mlir/Dialect/Affine/Passes.h"
+#include "mlir/Transforms/Passes.h"
 
 #include "mlir/Dialect/Tensor/Transforms/BufferizableOpInterfaceImpl.h"
 #include "mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h"
@@ -46,7 +47,10 @@ using namespace mlir::nova;
 
 NovaCompilerAPI::NovaCompilerAPI() {
   // Register all MLIR passes globally so they can be parsed from strings
-  mlir::registerAllPasses();
+  // Register specific passes needed for parsed pipelines
+  mlir::affine::registerAffinePasses();
+  mlir::registerCanonicalizerPass();
+  mlir::registerCSEPass();
 
   context = std::make_unique<MLIRContext>();
   

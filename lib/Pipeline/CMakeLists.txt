@@ -39,6 +39,7 @@ add_mlir_library(NovaPipelines
   MLIRSCFToGPU
   MLIRGPUTransforms
   MLIRVectorToLLVM
+  MLIRVectorToLLVMPass
   MLIRGPUPipelines
   MLIRNVVMTarget
   MLIRAffineTransforms
