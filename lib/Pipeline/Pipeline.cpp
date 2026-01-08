@@ -4,6 +4,8 @@
 #include "mlir/Conversion/MathToLLVM/MathToLLVM.h"
 #include "mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h"
 #include "mlir/Conversion/ArithToLLVM/ArithToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVM.h"
+#include "mlir/Conversion/VectorToLLVM/ConvertVectorToLLVMPass.h"
 //other conversion includes from mlir
 #include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
 #include "mlir/Conversion/TosaToLinalg/TosaToLinalg.h"
@@ -98,6 +100,9 @@ pm.addPass(mlir::createTosaToTensorPass());
   //Convert remaining bufferization ops to memref
   pm.addPass(mlir::createConvertBufferizationToMemRefPass());
 
+  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
+
+
   OpPassManager &funcPM = pm.nest<func::FuncOp>();
   
   if (failed(mlir::parsePassPipeline("func.func(affine-loop-tile{tile-sizes=32,32,8})", pm))) {
@@ -124,9 +129,6 @@ pm.addPass(mlir::createTosaToTensorPass());
 
   funcPM.addPass(mlir::createCanonicalizerPass());
 
-
-  pm.addPass(mlir::createConvertLinalgToAffineLoopsPass());
-
   // Lower affine to standard control flow
   pm.addPass(createLowerAffinePass());
   pm.addPass(mlir::createConvertVectorToSCFPass());
@@ -142,9 +144,10 @@ pm.addPass(mlir::createTosaToTensorPass());
   pm.addPass(mlir::memref::createExpandStridedMetadataPass());
 
   //Lower to LLVM dialect
+  pm.addPass(createConvertControlFlowToLLVMPass());
+  pm.addPass(mlir::createConvertVectorToLLVMPass());
   pm.addPass(createConvertMathToLLVMPass());
   pm.addPass(createArithToLLVMConversionPass());
-  pm.addPass(createConvertControlFlowToLLVMPass());
   pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
   pm.addPass(createConvertFuncToLLVMPass()); // Convert functions lastly
   

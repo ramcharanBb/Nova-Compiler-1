@@ -1,3 +1,4 @@
+#include "mlir/InitAllPasses.h"
 #include "Compiler/API/NovaCompilerAPI.h"
 #include "Compiler/Pipeline/Pipeline.h"
 #include "Compiler/Dialect/nova/NovaDialect.h"
@@ -44,6 +45,9 @@ using namespace mlir::nova;
 //----------------------------------------------------------------------------//
 
 NovaCompilerAPI::NovaCompilerAPI() {
+  // Register all MLIR passes globally so they can be parsed from strings
+  mlir::registerAllPasses();
+
   context = std::make_unique<MLIRContext>();
   
   // Create and populate dialect registry first

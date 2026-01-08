@@ -38,6 +38,7 @@ add_mlir_library(NovaPipelines
   MLIRBufferizationToMemRef
   MLIRSCFToGPU
   MLIRGPUTransforms
+  MLIRVectorToLLVM
   MLIRGPUPipelines
   MLIRNVVMTarget
   MLIRAffineTransforms
@@ -48,6 +49,8 @@ add_mlir_library(NovaPipelines
   MLIRTosaToArith
   MLIRTosaToTensor
   MLIRTosaToSCF
+  MLIRMathTransforms
+  MLIRUBToLLVM
   CompilerTransforms
 )
 
