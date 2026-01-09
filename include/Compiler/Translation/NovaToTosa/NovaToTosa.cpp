@@ -1260,7 +1260,7 @@ struct NovaToTosaLoweringPass
     ConversionTarget target(getContext());
 
           target.addLegalDialect<tosa::TosaDialect, func::FuncDialect>();
-          target.addLegalOp<nova::ConstantOp>();
+          target.addIllegalOp<nova::ConstantOp>();
           target.addIllegalOp<nova::ReluOp>();
           target.addIllegalOp<nova::ExpOp>();
           target.addIllegalOp<nova::LogOp>();
@@ -1292,7 +1292,6 @@ struct NovaToTosaLoweringPass
           target.addIllegalOp<nova::BceOp>();
           //target.addIllegalOp<nova::MatmulOp>();
           target.addIllegalOp<nova::AddOp>();
-          target.addIllegalOp<nova::ScalarConstOp>();
           target.addIllegalOp<nova::MaeOp>();
           target.addIllegalOp<nova::TransposeOp>();
           target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });

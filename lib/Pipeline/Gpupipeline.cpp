@@ -142,45 +142,23 @@ namespace mlir
             pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
             pm.addPass(mlir::createGpuKernelOutliningPass());
 
-            // 6. LINALG TO PARALLEL LOOPS
-            pm.addNestedPass<mlir::func::FuncOp>(
-                mlir::createLinalgFoldUnitExtentDimsPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createConvertLinalgToParallelLoopsPass());
-            // Apply Tiling HERE on the parallel loops
-            pm.addPass(mlir::createParallelLoopTilingPass({32, 32, 1}));
-            pm.addNestedPass<mlir::func::FuncOp>(mlir::createParallelLoopFusionPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            // 8. GPU MAPPINGcreateParallelLoopFusionPass
-            pm.addPass(mlir::createCanonicalizerPass());
-            pm.addPass(mlir::createCSEPass());
-            pm.addPass(mlir::createGpuMapParallelLoopsPass());
-            pm.addPass(mlir::createConvertParallelLoopToGpuPass());
-            pm.addPass(mlir::createCanonicalizerPass());
-            // Add custom memory management pass (REMOVED: handled by canonicalization)
-            pm.addNestedPass<mlir::func::FuncOp>(
-                mlir::nova::createAddGpuMemoryCopiesPass());
-            // Convert promoted memref.alloc to gpu.alloc
-            pm.addPass(mlir::nova::createConvertMemRefToGpuPass());
-            pm.addPass(mlir::createGpuKernelOutliningPass());
-
             mlir::GpuNVVMAttachTargetOptions nvvmTargetOptions;
             nvvmTargetOptions.triple = "nvptx64-nvidia-cuda";
             nvvmTargetOptions.chip = "sm_86";
             pm.addPass(mlir::createGpuNVVMAttachTarget(nvvmTargetOptions));
 
-//   // Lowering INSIDE the GPU Module (Fixes 'index' in kernels)
-//   auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
-//   gpuPm.addPass(mlir::createLowerAffinePass());
-//   gpuPm.addPass(mlir::createSCFToControlFlowPass());
-//   mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
-//   gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
-//   gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
-//   gpuPm.addPass(mlir::createArithToLLVMConversionPass());
-//   gpuPm.addPass(mlir::createConvertMathToLLVMPass());
-//   gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
-//   pm.addPass(mlir::createCanonicalizerPass());
-//   pm.addPass(mlir::createCSEPass());
+            // Lowering INSIDE the GPU Module (Fixes 'index' in kernels)
+            auto &gpuPm = pm.nest<gpu::GPUModuleOp>();
+            gpuPm.addPass(mlir::createLowerAffinePass());
+            gpuPm.addPass(mlir::createSCFToControlFlowPass());
+            mlir::ConvertGpuOpsToNVVMOpsOptions nvvmOptions;
+            gpuPm.addPass(mlir::createConvertGpuOpsToNVVMOps(nvvmOptions));
+            gpuPm.addPass(mlir::createConvertIndexToLLVMPass());
+            gpuPm.addPass(mlir::createArithToLLVMConversionPass());
+            gpuPm.addPass(mlir::createConvertMathToLLVMPass());
+            gpuPm.addPass(mlir::createReconcileUnrealizedCastsPass());
+            pm.addPass(mlir::createCanonicalizerPass());
+            pm.addPass(mlir::createCSEPass());
 
             // Binary generation (Stage 2)
             mlir::GpuModuleToBinaryPassOptions binaryOptions;
