@@ -37,13 +37,19 @@ public:
     auto module = op->getParentOfType<ModuleOp>();
     auto ctx = op.getContext();
     
-    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto genericPtrTy = LLVM::LLVMPointerType::get(ctx);
     auto int64Ty = IntegerType::get(ctx, 64);
     auto int32Ty = IntegerType::get(ctx, 32);
 
-    auto cudaMalloc = getOrDeclareFunc(module, rewriter, "cudaMalloc", int32Ty, {voidPtrTy, int64Ty});
+    auto cudaMalloc = getOrDeclareFunc(module, rewriter, "cudaMalloc", int32Ty, {genericPtrTy, int64Ty});
 
     MemRefType memRefType = op.getType();
+    unsigned addressSpace = 0;
+    if (auto intAttr = llvm::dyn_cast_or_null<IntegerAttr>(memRefType.getMemorySpace())) {
+        addressSpace = intAttr.getInt();
+    }
+    auto devicePtrTy = LLVM::LLVMPointerType::get(ctx, addressSpace);
+
     int64_t elementSize = memRefType.getElementType().getIntOrFloatBitWidth() / 8;
     if (elementSize == 0) elementSize = 1;
 
@@ -64,14 +70,15 @@ public:
     }
 
     Value one = rewriter.create<LLVM::ConstantOp>(loc, int32Ty, rewriter.getI32IntegerAttr(1));
-    Value ptrVar = rewriter.create<LLVM::AllocaOp>(loc, voidPtrTy, voidPtrTy, one, 8);
+    // Allocate space on stack for the device pointer (always space 0)
+    Value ptrVar = rewriter.create<LLVM::AllocaOp>(loc, genericPtrTy, devicePtrTy, one, 8);
     
     rewriter.create<LLVM::CallOp>(loc, cudaMalloc, ValueRange{ptrVar, sizeBytes});
-    Value devicePtr = rewriter.create<LLVM::LoadOp>(loc, voidPtrTy, ptrVar);
+    Value devicePtr = rewriter.create<LLVM::LoadOp>(loc, devicePtrTy, ptrVar);
 
     SmallVector<Type> elemTypes;
-    elemTypes.push_back(voidPtrTy); 
-    elemTypes.push_back(voidPtrTy);
+    elemTypes.push_back(devicePtrTy); 
+    elemTypes.push_back(devicePtrTy);
     elemTypes.push_back(int64Ty);
     if (memRefType.getRank() > 0) {
         elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefType.getRank()));
@@ -117,20 +124,26 @@ public:
     auto module = op->getParentOfType<ModuleOp>();
     auto ctx = op.getContext();
     
-    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto genericPtrTy = LLVM::LLVMPointerType::get(ctx);
     auto int64Ty = IntegerType::get(ctx, 64);
     auto int32Ty = IntegerType::get(ctx, 32);
 
-    auto cudaMemcpy = getOrDeclareFunc(module, rewriter, "cudaMemcpy", int32Ty, {voidPtrTy, voidPtrTy, int64Ty, int32Ty});
+    auto cudaMemcpy = getOrDeclareFunc(module, rewriter, "cudaMemcpy", int32Ty, {genericPtrTy, genericPtrTy, int64Ty, int32Ty});
 
     Value dst = op.getDst();
     Value src = op.getSrc();
     
     auto getPtrFromMemRef = [&](Value val) -> Value {
         auto memRefTy = llvm::cast<MemRefType>(val.getType());
+        unsigned addressSpace = 0;
+        if (auto intAttr = llvm::dyn_cast_or_null<IntegerAttr>(memRefTy.getMemorySpace())) {
+            addressSpace = intAttr.getInt();
+        }
+        auto ptrTy = LLVM::LLVMPointerType::get(ctx, addressSpace);
+
         SmallVector<Type> elemTypes;
-        elemTypes.push_back(voidPtrTy); 
-        elemTypes.push_back(voidPtrTy);
+        elemTypes.push_back(ptrTy); 
+        elemTypes.push_back(ptrTy);
         elemTypes.push_back(int64Ty);
         if (memRefTy.getRank() > 0) {
              elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
@@ -138,7 +151,12 @@ public:
         }
         Type descTy = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
         Value desc = rewriter.create<UnrealizedConversionCastOp>(loc, descTy, val).getResult(0);
-        return rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1}); 
+        Value rawPtr = rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1}); 
+        // Cast to generic pointer for cudaMemcpy call if necessary
+        if (addressSpace != 0) {
+            return rewriter.create<LLVM::AddrSpaceCastOp>(loc, genericPtrTy, rawPtr);
+        }
+        return rawPtr;
     };
 
     Value dstPtr = getPtrFromMemRef(dst);
@@ -149,10 +167,33 @@ public:
     if (elementSize == 0) elementSize = 1;
     
     Value sizeBytes = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(elementSize));
+    
+    // Dynamic dim handling for memcpy (fixing the previously identified bug)
+    auto getDescriptor = [&](Value val) -> Value {
+        auto memRefTy = llvm::cast<MemRefType>(val.getType());
+        unsigned addressSpace = 0;
+        if (auto intAttr = llvm::dyn_cast_or_null<IntegerAttr>(memRefTy.getMemorySpace())) {
+            addressSpace = intAttr.getInt();
+        }
+        auto ptrTy = LLVM::LLVMPointerType::get(ctx, addressSpace);
+        SmallVector<Type> elemTypes;
+        elemTypes.push_back(ptrTy); 
+        elemTypes.push_back(ptrTy);
+        elemTypes.push_back(int64Ty);
+        if (memRefTy.getRank() > 0) {
+             elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+             elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
+        }
+        Type descTy = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
+        return rewriter.create<UnrealizedConversionCastOp>(loc, descTy, val).getResult(0);
+    };
+
+    Value desc = getDescriptor(dst);
     for (int i = 0; i < memRefType.getRank(); ++i) {
          Value dimSize;
          if (memRefType.isDynamicDim(i)) {
-             dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(1)); 
+             // Extract size from descriptor
+             dimSize = rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{3, i});
          } else {
              dimSize = rewriter.create<LLVM::ConstantOp>(loc, int64Ty, rewriter.getI64IntegerAttr(memRefType.getDimSize(i)));
          }
@@ -174,17 +215,23 @@ public:
     auto loc = op.getLoc();
     auto module = op->getParentOfType<ModuleOp>();
     auto ctx = op.getContext();
-    auto voidPtrTy = LLVM::LLVMPointerType::get(ctx);
+    auto genericPtrTy = LLVM::LLVMPointerType::get(ctx);
     auto int32Ty = IntegerType::get(ctx, 32);
     auto int64Ty = IntegerType::get(ctx, 64);
 
-    auto cudaFree = getOrDeclareFunc(module, rewriter, "cudaFree", int32Ty, {voidPtrTy});
+    auto cudaFree = getOrDeclareFunc(module, rewriter, "cudaFree", int32Ty, {genericPtrTy});
     auto memRef = op.getMemref();
     
     auto memRefTy = llvm::cast<MemRefType>(memRef.getType());
+    unsigned addressSpace = 0;
+    if (auto intAttr = llvm::dyn_cast_or_null<IntegerAttr>(memRefTy.getMemorySpace())) {
+        addressSpace = intAttr.getInt();
+    }
+    auto ptrTy = LLVM::LLVMPointerType::get(ctx, addressSpace);
+
     SmallVector<Type> elemTypes;
-    elemTypes.push_back(voidPtrTy); 
-    elemTypes.push_back(voidPtrTy);
+    elemTypes.push_back(ptrTy); 
+    elemTypes.push_back(ptrTy);
     elemTypes.push_back(int64Ty);
     if (memRefTy.getRank() > 0) {
          elemTypes.push_back(LLVM::LLVMArrayType::get(int64Ty, memRefTy.getRank()));
@@ -193,87 +240,27 @@ public:
     Type descTy = LLVM::LLVMStructType::getLiteral(ctx, elemTypes);
     
     Value desc = rewriter.create<UnrealizedConversionCastOp>(loc, descTy, memRef).getResult(0);
-    Value ptr = rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1});
+    Value rawPtr = rewriter.create<LLVM::ExtractValueOp>(loc, desc, ArrayRef<int64_t>{1});
     
+    // Cast to generic pointer for cudaFree call if necessary
+    Value ptr = rawPtr;
+    if (addressSpace != 0) {
+        ptr = rewriter.create<LLVM::AddrSpaceCastOp>(loc, genericPtrTy, rawPtr);
+    }
+
     rewriter.create<LLVM::CallOp>(loc, cudaFree, ValueRange{ptr});
     rewriter.eraseOp(op);
     return success();
   }
 };
 
-class FixGpuLaunchPass : public PassWrapper<FixGpuLaunchPass, OperationPass<ModuleOp>> {
+class GpuRuntimeLoweringPass : public PassWrapper<GpuRuntimeLoweringPass, OperationPass<ModuleOp>> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(FixGpuLaunchPass)
-
-    void fixGlobalDtors(ModuleOp module) {
-        auto globalDtors = module.lookupSymbol<LLVM::GlobalOp>("llvm.global_dtors");
-        if (!globalDtors) {
-            return;
-        }
-
-        auto initialValue = globalDtors.getValue();
-        if (!initialValue) {
-            return;
-        }
-
-        auto arrayAttr = llvm::dyn_cast<ArrayAttr>(*initialValue);
-        if (!arrayAttr) {
-            return;
-        }
-
-        OpBuilder builder(module.getContext());
-        SmallVector<Attribute, 4> newElements;
-        bool changed = false;
-
-        for (auto attr : arrayAttr) {
-            auto structAttr = llvm::dyn_cast<ArrayAttr>(attr);
-            if (structAttr && structAttr.size() >= 2) {
-                std::string attrStr;
-                {
-                    llvm::raw_string_ostream os(attrStr);
-                    structAttr[1].print(os);
-                }
-                
-                if (attrStr.find("unload") != std::string::npos) {
-                    SmallVector<Attribute, 3> fields;
-                    fields.push_back(builder.getI32IntegerAttr(65535));
-                    fields.push_back(structAttr[1]);
-                    if (structAttr.size() > 2)
-                        fields.push_back(structAttr[2]);
-                    
-                    newElements.push_back(builder.getArrayAttr(fields));
-                    changed = true;
-                    continue;
-                }
-            }
-            newElements.push_back(attr);
-        }
-
-        if (changed) {
-            globalDtors.setValueAttr(builder.getArrayAttr(newElements));
-        }
-    }
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(GpuRuntimeLoweringPass)
 
   void runOnOperation() override {
     ModuleOp module = getOperation();
     
-    fixGlobalDtors(module);
-    
-    if (auto existing = SymbolTable::lookupSymbolIn(module, "dealloc_helper")) {
-        if (!llvm::isa<LLVM::LLVMFuncOp>(existing)) {
-            existing->erase();
-        }
-    }
-
-    if (!module.lookupSymbol<LLVM::LLVMFuncOp>("dealloc_helper")) {
-        OpBuilder builder(module.getContext());
-        builder.setInsertionPointToStart(module.getBody());
-        auto voidTy = LLVM::LLVMVoidType::get(module.getContext());
-        auto ptrTy = LLVM::LLVMPointerType::get(module.getContext());
-        auto funcTy = LLVM::LLVMFunctionType::get(voidTy, {ptrTy, ptrTy, ptrTy, ptrTy, ptrTy});
-        builder.create<LLVM::LLVMFuncOp>(module.getLoc(), "dealloc_helper", funcTy);
-    }
-
     RewritePatternSet patterns(module.getContext());
     patterns.add<ConvertGpuAllocToCall>(module.getContext());
     patterns.add<ConvertGpuMemcpyToCall>(module.getContext());
@@ -283,10 +270,13 @@ public:
       signalPassFailure();
     }
   }
+
+  StringRef getArgument() const final { return "gpu-runtime-lowering"; }
+  StringRef getDescription() const final { return "Lower abstract GPU memory operations to CUDA runtime calls"; }
 };
 
-std::unique_ptr<Pass> createFixGpuLaunchPass() {
-  return std::make_unique<FixGpuLaunchPass>();
+std::unique_ptr<Pass> createGpuRuntimeLoweringPass() {
+  return std::make_unique<GpuRuntimeLoweringPass>();
 }
 
 } // namespace nova

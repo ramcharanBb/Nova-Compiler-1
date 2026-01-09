@@ -2,13 +2,13 @@
 // NovaCanonicalizations.cpp - Canonicalization patterns for Nova dialect
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Dialect/nova/NovaOps.h"
 #include "Compiler/Dialect/nova/Broadcast.h"
+#include "Compiler/Dialect/nova/NovaOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/TypeUtilities.h"
 #include "mlir/IR/Matchers.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/TypeUtilities.h"
 
 using namespace mlir;
 using namespace mlir::nova;
@@ -19,7 +19,7 @@ namespace {
 // Broadcast Insertion Pattern (Generic for all binary ops)
 //===----------------------------------------------------------------------===//
 
-template<typename OpType>
+template <typename OpType>
 struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
   using OpRewritePattern<OpType>::OpRewritePattern;
 
@@ -49,15 +49,17 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
       if (!isBroadcastCompatible(lhsType.getShape(), resultType.getShape())) {
         return failure();
       }
-      
-      auto broadcastDims = computeBroadcastDimensions(
-          lhsType.getRank(), resultType.getRank());
-      
-      auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      auto restype=resultType.clone(lhsType.getElementType());
 
-      newLhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), restype, newLhs, broadcastDimsAttr).getResult();
+      auto broadcastDims =
+          computeBroadcastDimensions(lhsType.getRank(), resultType.getRank());
+
+      auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
+      auto restype = resultType.clone(lhsType.getElementType());
+
+      newLhs = rewriter
+                   .create<BroadcastInDimOp>(op.getLoc(), restype, newLhs,
+                                             broadcastDimsAttr)
+                   .getResult();
       changed = true;
     }
 
@@ -68,16 +70,18 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
       if (!isBroadcastCompatible(rhsType.getShape(), resultType.getShape())) {
         return failure();
       }
-      
-      auto broadcastDims = computeBroadcastDimensions(
-          rhsType.getRank(), resultType.getRank());
-      
+
+      auto broadcastDims =
+          computeBroadcastDimensions(rhsType.getRank(), resultType.getRank());
+
       auto broadcastDimsAttr = rewriter.getI64ArrayAttr(broadcastDims);
-      //here instead of creating the op with result type we should 
-      //make thedata type of rhs to rhs itself
-      auto restype=resultType.clone(rhsType.getElementType());
-      newRhs = rewriter.create<BroadcastInDimOp>(
-          op.getLoc(), restype, newRhs, broadcastDimsAttr).getResult();
+      // here instead of creating the op with result type we should
+      // make thedata type of rhs to rhs itself
+      auto restype = resultType.clone(rhsType.getElementType());
+      newRhs = rewriter
+                   .create<BroadcastInDimOp>(op.getLoc(), restype, newRhs,
+                                             broadcastDimsAttr)
+                   .getResult();
       changed = true;
     }
 
@@ -85,7 +89,8 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
       return failure();
     }
 
-    rewriter.replaceOpWithNewOp<OpType>(op, op.getResult().getType(), newLhs, newRhs);
+    rewriter.replaceOpWithNewOp<OpType>(op, op.getResult().getType(), newLhs,
+                                        newRhs);
     return success();
   }
 };
@@ -98,7 +103,8 @@ struct InsertBroadcastPattern : public OpRewritePattern<OpType> {
 struct EliminateAddZero : public OpRewritePattern<AddOp> {
   using OpRewritePattern<AddOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(AddOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(AddOp op,
+                                PatternRewriter &rewriter) const override {
 
     // Check if RHS is a zero
     if (auto rhsDefOp = op.getRhs().getDefiningOp<nova::ConstantOp>()) {
@@ -129,8 +135,7 @@ private:
     if (isa<FloatType>(elementType)) {
       APFloat val = attr.getSplatValue<APFloat>();
       return val.isZero();
-    } 
-    else if (isa<IntegerType>(elementType)) {
+    } else if (isa<IntegerType>(elementType)) {
       APInt val = attr.getSplatValue<APInt>();
       return val.isZero();
     }
@@ -159,22 +164,24 @@ struct CombineAddConstants : public OpRewritePattern<AddOp> {
     Value otherOperand;
 
     // Constant on RHS of inner add
-    if (auto rhsInnerConst = lhsAdd.getRhs().getDefiningOp<arith::ConstantOp>()) {
+    if (auto rhsInnerConst =
+            lhsAdd.getRhs().getDefiningOp<arith::ConstantOp>()) {
       innerConst = rhsInnerConst;
       otherOperand = lhsAdd.getLhs();
     }
-    // Constant on LHS of inner add  
-    else if (auto lhsInnerConst = lhsAdd.getLhs().getDefiningOp<arith::ConstantOp>()) {
+    // Constant on LHS of inner add
+    else if (auto lhsInnerConst =
+                 lhsAdd.getLhs().getDefiningOp<arith::ConstantOp>()) {
       innerConst = lhsInnerConst;
       otherOperand = lhsAdd.getRhs();
     }
-    
+
     if (!innerConst)
       return failure();
 
     auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
     auto innerAttr = dyn_cast<DenseElementsAttr>(innerConst.getValue());
-    
+
     if (!rhsAttr || !innerAttr || !rhsAttr.isSplat() || !innerAttr.isSplat())
       return failure();
 
@@ -183,35 +190,39 @@ struct CombineAddConstants : public OpRewritePattern<AddOp> {
 
     TypedAttr newConstAttr;
     auto elementType = rhsAttr.getElementType();
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat val1 = rhsAttr.getSplatValue<APFloat>();
       APFloat val2 = innerAttr.getSplatValue<APFloat>();
       APFloat combined = val1;
       combined.add(val2, APFloat::rmNearestTiesToEven);
-      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
-      
+      newConstAttr = DenseElementsAttr::get(
+          cast<ShapedType>(rhsConst.getType()), combined);
+
     } else if (isa<IntegerType>(elementType)) {
       APInt val1 = rhsAttr.getSplatValue<APInt>();
       APInt val2 = innerAttr.getSplatValue<APInt>();
-      APInt combined = val1 + val2;  // Integer addition is exact
-      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
-      
+      APInt combined = val1 + val2; // Integer addition is exact
+      newConstAttr = DenseElementsAttr::get(
+          cast<ShapedType>(rhsConst.getType()), combined);
+
     } else {
       return failure();
     }
 
-    auto newConst = rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
+    auto newConst =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
 
     // Replace with new addition
-    rewriter.replaceOpWithNewOp<AddOp>(op, op.getType(), otherOperand, newConst);
+    rewriter.replaceOpWithNewOp<AddOp>(op, op.getType(), otherOperand,
+                                       newConst);
 
     return success();
   }
 };
 
 //-----------------------------------
-//Constant folding(Add)(C1 + C2)
+// Constant folding(Add)(C1 + C2)
 //-----------------------------------
 
 struct ConstantFoldAdd : public OpRewritePattern<AddOp> {
@@ -228,26 +239,24 @@ struct ConstantFoldAdd : public OpRewritePattern<AddOp> {
 
     auto lhsAttr = dyn_cast<DenseElementsAttr>(lhsConst.getValue());
     auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
-    
+
     if (!lhsAttr || !rhsAttr || !lhsAttr.isSplat() || !rhsAttr.isSplat())
       return failure();
-
 
     auto elementType = lhsAttr.getElementType();
     auto resType = cast<ShapedType>(op.getType());
     TypedAttr newConstAttr;
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat val1 = lhsAttr.getSplatValue<APFloat>();
       APFloat val2 = rhsAttr.getSplatValue<APFloat>();
       val1.add(val2, APFloat::rmNearestTiesToEven);
       newConstAttr = DenseElementsAttr::get(resType, val1);
-      
+
     } else if (isa<IntegerType>(elementType)) {
       APInt val1 = lhsAttr.getSplatValue<APInt>();
       APInt val2 = rhsAttr.getSplatValue<APInt>();
       newConstAttr = DenseElementsAttr::get(resType, val1 + val2);
-      
     }
 
     if (!newConstAttr)
@@ -307,7 +316,7 @@ struct EliminateSubSelf : public OpRewritePattern<SubOp> {
 
     auto resultType = cast<ShapedType>(op.getResult().getType());
     auto elementType = resultType.getElementType();
-    
+
     TypedAttr zeroAttr;
     if (isa<FloatType>(elementType)) {
       zeroAttr = rewriter.getFloatAttr(elementType, 0.0);
@@ -316,7 +325,7 @@ struct EliminateSubSelf : public OpRewritePattern<SubOp> {
     } else {
       return failure();
     }
-    
+
     auto denseZeroAttr = DenseElementsAttr::get(resultType, zeroAttr);
     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, denseZeroAttr);
     return success();
@@ -331,7 +340,8 @@ struct EliminateSubSelf : public OpRewritePattern<SubOp> {
 struct EliminateMulOne : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(MulOp op,
+                                PatternRewriter &rewriter) const override {
     // Check RHS for constant 1
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
@@ -358,7 +368,7 @@ struct EliminateMulOne : public OpRewritePattern<MulOp> {
 private:
   bool isSplatOne(DenseElementsAttr attr) const {
     auto elementType = attr.getElementType();
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat value = attr.getSplatValue<APFloat>();
       return value.isExactlyValue(1.0);
@@ -374,9 +384,10 @@ private:
 struct EliminateMulZero : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(MulOp op,
+                                PatternRewriter &rewriter) const override {
     Value zeroOperand = nullptr;
-    
+
     // Check RHS for zero constant
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
@@ -408,7 +419,7 @@ struct EliminateMulZero : public OpRewritePattern<MulOp> {
 private:
   bool isSplatZero(DenseElementsAttr attr) const {
     auto elementType = attr.getElementType();
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat value = attr.getSplatValue<APFloat>();
       return value.isZero();
@@ -424,7 +435,8 @@ private:
 struct CombineMulConstants : public OpRewritePattern<MulOp> {
   using OpRewritePattern<MulOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MulOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(MulOp op,
+                                PatternRewriter &rewriter) const override {
     // Check if outer RHS is constant
     auto rhsConst = op.getRhs().getDefiningOp<arith::ConstantOp>();
     if (!rhsConst)
@@ -440,23 +452,25 @@ struct CombineMulConstants : public OpRewritePattern<MulOp> {
     Value otherOperand;
 
     // Constant on RHS of inner mul
-    if (auto rhsInnerConst = lhsMul.getRhs().getDefiningOp<arith::ConstantOp>()) {
+    if (auto rhsInnerConst =
+            lhsMul.getRhs().getDefiningOp<arith::ConstantOp>()) {
       innerConst = rhsInnerConst;
       otherOperand = lhsMul.getLhs();
     }
-    // Constant on LHS of inner mul  
-    else if (auto lhsInnerConst = lhsMul.getLhs().getDefiningOp<arith::ConstantOp>()) {
+    // Constant on LHS of inner mul
+    else if (auto lhsInnerConst =
+                 lhsMul.getLhs().getDefiningOp<arith::ConstantOp>()) {
       innerConst = lhsInnerConst;
       otherOperand = lhsMul.getRhs();
     }
-    
+
     if (!innerConst)
       return failure();
 
     // Extract and validate both constants
     auto rhsAttr = dyn_cast<DenseElementsAttr>(rhsConst.getValue());
     auto innerAttr = dyn_cast<DenseElementsAttr>(innerConst.getValue());
-    
+
     if (!rhsAttr || !innerAttr || !rhsAttr.isSplat() || !innerAttr.isSplat())
       return failure();
 
@@ -466,26 +480,30 @@ struct CombineMulConstants : public OpRewritePattern<MulOp> {
 
     TypedAttr newConstAttr;
     auto elementType = rhsAttr.getElementType();
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat val1 = rhsAttr.getSplatValue<APFloat>();
       APFloat val2 = innerAttr.getSplatValue<APFloat>();
       APFloat combined = val1;
       combined.multiply(val2, APFloat::rmNearestTiesToEven);
-      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
-      
+      newConstAttr = DenseElementsAttr::get(
+          cast<ShapedType>(rhsConst.getType()), combined);
+
     } else if (isa<IntegerType>(elementType)) {
       APInt val1 = rhsAttr.getSplatValue<APInt>();
       APInt val2 = innerAttr.getSplatValue<APInt>();
-      APInt combined = val1 * val2; 
-      newConstAttr = DenseElementsAttr::get(cast<ShapedType>(rhsConst.getType()), combined);
-      
+      APInt combined = val1 * val2;
+      newConstAttr = DenseElementsAttr::get(
+          cast<ShapedType>(rhsConst.getType()), combined);
+
     } else {
       return failure();
     }
 
-    auto newConst = rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
-    rewriter.replaceOpWithNewOp<MulOp>(op, op.getType(), otherOperand, newConst);
+    auto newConst =
+        rewriter.create<arith::ConstantOp>(op.getLoc(), newConstAttr);
+    rewriter.replaceOpWithNewOp<MulOp>(op, op.getType(), otherOperand,
+                                       newConst);
 
     return success();
   }
@@ -499,7 +517,8 @@ struct CombineMulConstants : public OpRewritePattern<MulOp> {
 struct EliminateDivOne : public OpRewritePattern<DivOp> {
   using OpRewritePattern<DivOp>::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(DivOp op, PatternRewriter &rewriter) const override {
+  LogicalResult matchAndRewrite(DivOp op,
+                                PatternRewriter &rewriter) const override {
     // Only check RHS - division is NOT commutative
     if (auto rhsDefOp = op.getRhs().getDefiningOp<arith::ConstantOp>()) {
       if (auto denseAttr = dyn_cast<DenseElementsAttr>(rhsDefOp.getValue())) {
@@ -515,7 +534,7 @@ struct EliminateDivOne : public OpRewritePattern<DivOp> {
 private:
   bool isSplatOne(DenseElementsAttr attr) const {
     auto elementType = attr.getElementType();
-    
+
     if (isa<FloatType>(elementType)) {
       APFloat value = attr.getSplatValue<APFloat>();
       return value.isExactlyValue(1.0);
@@ -606,25 +625,22 @@ static bool canFoldSub(Attribute lhs, Attribute rhs) {
 // Populate Canonicalization Patterns (called from each Op)
 //===----------------------------------------------------------------------===//
 
-#include "Compiler/Dialect/nova/NovaCanonicalization.inc"
-
-void AddOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void AddOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<AddOp>>(context);
   results.add<EliminateAddZero>(context);
   results.add<CombineAddConstants>(context);
-  populateWithGenerated(results);
- results.add<ConstantFoldAdd>(context);
+  results.add<ConstantFoldAdd>(context);
 }
 
-void SubOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void SubOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<SubOp>>(context);
   results.add<EliminateSubZero>(context);
   results.add<EliminateSubSelf>(context);
 }
 
-void MulOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void MulOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<MulOp>>(context);
   results.add<EliminateMulOne>(context);
@@ -632,7 +648,7 @@ void MulOp::getCanonicalizationPatterns(RewritePatternSet &results,
   results.add<CombineMulConstants>(context);
 }
 
-void DivOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void DivOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<DivOp>>(context);
   results.add<EliminateDivOne>(context);
@@ -648,13 +664,13 @@ void PowOp::getCanonicalizationPatterns(RewritePatternSet &results,
   results.add<InsertBroadcastPattern<PowOp>>(context);
 }
 
-void MaxOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void MaxOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<MaxOp>>(context);
   results.add<SimplifyMaxSelf>(context);
 }
 
-void MinOp::getCanonicalizationPatterns(RewritePatternSet &results, 
+void MinOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                         MLIRContext *context) {
   results.add<InsertBroadcastPattern<MinOp>>(context);
   results.add<SimplifyMinSelf>(context);
