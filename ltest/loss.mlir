@@ -1,7 +1,9 @@
 module {
-  func.func @binary_ops(%arg0: f64,%arg1: f64,%arg2:i32) -> tensor<8x8xf64> {
-
-    %1 = nova.rndm2d %arg0, %arg1,%arg2 : tensor<8x8xf64>
-    return %1 : tensor<8x8xf64>
+  func.func @test_bce(%arg0: tensor<8x8xf32, #nova.device<"1">>, %arg1: tensor<8x8xf32, #nova.device<"1">>) -> tensor<1xf32, #nova.device<"1">> {
+    %1 = nova.mae %arg0, %arg1 : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
+    %2 = nova.mse %arg0, %arg1 : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
+    %3 = nova.bce %arg0, %arg1 : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
+    %4 = nova.cce %arg0, %arg1 : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
+    return %1 : tensor<1xf32, #nova.device<"1">>
   }
 }

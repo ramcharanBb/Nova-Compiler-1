@@ -32,7 +32,7 @@ Value createIntToFloatCast(Value input, Type targetType, OpBuilder &builder,
   if (auto inputTensorType = dyn_cast<RankedTensorType>(inputType)) {
     if (isa<IntegerType>(inputTensorType.getElementType())) {
       Value out = builder.create<tensor::EmptyOp>(
-          loc, inputTensorType.getShape(), targetType);
+          loc, inputTensorType.getShape(), targetType, inputTensorType.getEncoding());
       int64_t rank = inputTensorType.getRank();
       AffineMap idMap =
           AffineMap::getMultiDimIdentityMap(rank, builder.getContext());
@@ -261,7 +261,7 @@ public:
       return rewriter.notifyMatchFailure(op, "expected ranked tensor type");
 
     Value init = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), tensorType.getShape(), tensorType.getElementType());
+        op.getLoc(), tensorType.getShape(), tensorType.getElementType(), tensorType.getEncoding());
 
     Value result = NovaOpLinalOp::mapop(op, resultType, operands, init, rewriter);
 
