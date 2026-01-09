@@ -1310,6 +1310,15 @@ LogicalResult ReduceOp::inferReturnTypes(
 
   auto inputShape = inputType.getShape();
   Type elementType = inputType.getElementType();
+
+  // Check reduction kind to determine output element type
+  if (auto kindAttr = dyn_cast_or_null<IntegerAttr>(attributes.get("kind"))) {
+    int64_t kind = kindAttr.getInt();
+    // ALL = 7, ANY = 4
+    if (kind == 7 || kind == 4) {
+      elementType = IntegerType::get(context, 1);
+    }
+  }
   size_t inputRank = inputShape.size();
 
   bool keepDims = false;
