@@ -1086,7 +1086,7 @@ def Nova_AdamOp : Op<Nova_Dialect,"adam",[Pure, InferTypeOpInterface]>{
       ::mlir::RegionRange regions,
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
-
+}
 def Nova_GatherOp : Op<Nova_Dialect, "gather", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Gather operation";
   let arguments = (ins Nova_Tensor:$input, Nova_Tensor:$indices, I64Attr:$axis);
