@@ -99,51 +99,6 @@ namespace mlir
       return std::nullopt;
     }
     // function to select operation
-    // if add choose add
-    // static Value opdispatcher(nova::AddOp op, Value lhs, Value rhs, OpBuilder *builder)
-    // {
-
-    //   if (isa<IntegerType>(lhs.getType()))
-    //     return builder->create<arith::AddIOp>(op.getLoc(), lhs, rhs);
-    //   else if(isa<FloatType>(lhs.getType()))
-    //   return builder->create<arith::AddFOp>(op.getLoc(), lhs, rhs);
-    //   return builder->create<complex::AddOp>(op.getLoc(), lhs, rhs);
-    //   return nullptr;
-    // }
-    // static Value opdispatcher(nova::SubOp op, Value lhs, Value rhs, OpBuilder *builder)
-    // {
-
-    //   if (isa<IntegerType>(lhs.getType()))
-    //     return builder->create<arith::SubIOp>(op.getLoc(), lhs, rhs);
-    //   else if(isa<FloatType>(lhs.getType()))
-    //   return builder->create<arith::SubFOp>(op.getLoc(), lhs, rhs);
-    //   return builder->create<complex::SubOp>(op.getLoc(), lhs, rhs);
-    //   return nullptr;
-    // }
-    // static Value opdispatcher(nova::MulOp op, Value lhs, Value rhs, OpBuilder *builder)
-    // {
-
-    //   if (isa<IntegerType>(lhs.getType()))
-    //     return builder->create<arith::MulIOp>(op.getLoc(), lhs, rhs);
-    //   if(isa<FloatType>(lhs.getType()))
-    //   return builder->create<arith::MulFOp>(op.getLoc(), lhs, rhs);
-    //   if(isa<ComplexType>(lhs.getType())){
-    //     return builder->create<complex::MulOp>(op.getLoc(), lhs, rhs);
-    //   }
-    //   return nullptr;
-    // }
-    // static Value opdispatcher(nova::PowOp op, Value lhs, Value rhs, OpBuilder *builder)
-    // {
-
-    //   if (isa<IntegerType>(lhs.getType()))
-    //     return builder->create<math::IPowIOp>(op.getLoc(), lhs, rhs);
-    //   else if(isa<FloatType>(lhs.getType()))
-    //   return builder->create<math::PowFOp>(op.getLoc(), lhs, rhs);
-    //   else if(isa<ComplexType>(lhs.getType())&&isa<ComplexType>(rhs.getType()))
-    //   return builder->create<complex::PowOp>(op.getLoc(), lhs, rhs);
-
-    //   return nullptr;
-    // }
     static Value opdispatcher(nova::CompareOp op, Value lhs, Value rhs, OpBuilder *builder)
     {
       nova::ComparisonType compareType = op.getKind();
@@ -285,58 +240,6 @@ namespace mlir
         return nullptr;
       }
 
-      // Add operation
-      // static Value mapOpImpl(nova::AddOp op, Type resultType, ArrayRef<Value> args,
-      //                        OpBuilder *builder)
-      // {
-      //   return TypePromotionLowering(op, resultType, args, builder);
-      // }
-      // // sub operation
-      // static Value mapOpImpl(nova::SubOp op, Type resultType, ArrayRef<Value> args,
-      //                        OpBuilder *builder)
-      // {
-      //   return TypePromotionLowering(op, resultType, args, builder);
-      // }
-      // // mul operation
-      // static Value mapOpImpl(nova::MulOp op, Type resultType, ArrayRef<Value> args,
-      //                        OpBuilder *builder)
-      // {
-      //   return TypePromotionLowering(op, resultType, args, builder);
-      // }
-      // pow operation
-      // static Value mapOpImpl(nova::PowOp op, Type resultType, ArrayRef<Value> args,
-      //                        OpBuilder *builder)
-      // {
-      //   return TypePromotionLowering(op, resultType, args, builder);
-      // }
-      // Square operation
-      // static Value mapOpImpl(nova::SquareOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
-      // {
-      //   if (isa<FloatType>(resultType))
-      //     return builder->create<arith::MulFOp>(op.getLoc(), args[0], args[0]);
-      //   if (isa<IntegerType>(resultType))
-      //     return builder->create<arith::MulIOp>(op.getLoc(), args[0], args[0]);
-      //   return nullptr;
-      // }
-      // abs operation
-      // static Value mapOpImpl(nova::AbsOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
-      // {
-      //   if (isa<FloatType>(args[0].getType()))
-      //     return builder->create<math::AbsFOp>(op.getLoc(), args[0]);
-      //   else if (isa<IntegerType>(resultType))
-      //     return builder->create<math::AbsIOp>(op.getLoc(), args[0]);
-      //   else
-      //     return builder->create<complex::AbsOp>(op.getLoc(), args[0]);
-      //   return nullptr;
-      // }
-      // sqrt operation
-      // static Value mapOpImpl(nova::SqrtOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
-      // {
-      //   if(isa<ComplexType>(args[0].getType())){
-      //     return builder->create<complex::SqrtOp>(op.getLoc(),args[0]);
-      //   }
-      //   return builder->create<math::SqrtOp>(op.getLoc(), args[0]);
-      // }
       // div operation
       static Value mapOpImpl(nova::DivOp op, Type resultType, ArrayRef<Value> args, OpBuilder *builder)
       {
@@ -1023,6 +926,303 @@ namespace mlir
       }
     };
 
+    //----------------------------------------------------------------
+    //                          ArgMax
+    //----------------------------------------------------------------
+    static TypedAttr createInitialValueForArgMaxOp(Operation *op, Type elementTy,
+                                                   PatternRewriter &rewriter)
+    {
+      if (isa<nova::ArgmaxOp>(op) && isa<FloatType>(elementTy))
+        return rewriter.getFloatAttr(
+            elementTy, APFloat::getInf(
+                           cast<FloatType>(elementTy).getFloatSemantics(), true));
+
+      if (isa<nova::ArgmaxOp>(op) && isa<IntegerType>(elementTy))
+        return rewriter.getIntegerAttr(
+            elementTy, APInt::getSignedMinValue(elementTy.getIntOrFloatBitWidth()));
+
+      return {};
+    }
+
+    class ArgMaxConverter : public OpRewritePattern<nova::ArgmaxOp>
+    {
+    public:
+      using OpRewritePattern<nova::ArgmaxOp>::OpRewritePattern;
+
+      LogicalResult matchAndRewrite(nova::ArgmaxOp argmaxOp,
+                                    PatternRewriter &rewriter) const final
+      {
+        auto loc = argmaxOp.getLoc();
+        Value input = argmaxOp.getInput();
+        
+        auto inputTy = cast<ShapedType>(input.getType());
+        auto resultTy = cast<RankedTensorType>(argmaxOp.getType());
+        auto inElementTy = inputTy.getElementType();
+        auto outElementTy = resultTy.getElementType();
+        int axis = static_cast<int>(argmaxOp.getDimension().value_or(0));
+        if (axis < 0) axis += inputTy.getRank();
+        
+        auto resultMaxTy = RankedTensorType::get(resultTy.getShape(), inElementTy, resultTy.getEncoding());
+
+        if (!isa<IntegerType>(outElementTy))
+          return rewriter.notifyMatchFailure(
+              argmaxOp,
+              "nova.argmax to linalg.* requires integer-like result type");
+
+        SmallVector<Value> dynDims;
+        for (int i = 0; i < inputTy.getRank(); i++)
+        {
+          if (inputTy.isDynamicDim(i) && i != axis)
+          {
+            dynDims.push_back(rewriter.create<tensor::DimOp>(loc, input, i));
+          }
+        }
+
+        // First fill the output buffer for the index.
+        auto emptyTensorIdx = rewriter
+                                  .create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                           outElementTy, dynDims, resultTy.getEncoding())
+                                  .getResult();
+        auto fillValueIdx = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getIntegerAttr(outElementTy, 0));
+        auto filledTensorIdx =
+            rewriter
+                .create<linalg::FillOp>(loc, ValueRange{fillValueIdx},
+                                        ValueRange{emptyTensorIdx})
+                .result();
+
+        // Second fill the output buffer for the running max.
+        auto emptyTensorMax = rewriter
+                                  .create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                           inElementTy, dynDims, resultTy.getEncoding())
+                                  .getResult();
+        
+        auto fillValueMaxAttr = createInitialValueForArgMaxOp(argmaxOp, inElementTy, rewriter);
+        auto fillValueMax = rewriter.create<arith::ConstantOp>(loc, fillValueMaxAttr);
+
+        auto filledTensorMax =
+            rewriter
+                .create<linalg::FillOp>(loc, ValueRange{fillValueMax},
+                                        ValueRange{emptyTensorMax})
+                .result();
+
+        // We need to reduce along the arg-max axis, with parallel operations along the rest.
+        SmallVector<utils::IteratorType, 4> iteratorTypes;
+        iteratorTypes.resize(inputTy.getRank(), utils::IteratorType::parallel);
+        iteratorTypes[axis] = utils::IteratorType::reduction;
+
+        SmallVector<AffineExpr, 2> srcExprs;
+        SmallVector<AffineExpr, 2> dstExprs;
+        for (int i = 0, rank = inputTy.getRank(); i != rank; ++i)
+        {
+          srcExprs.push_back(mlir::getAffineDimExpr(i, rewriter.getContext()));
+          if (axis != i)
+            dstExprs.push_back(mlir::getAffineDimExpr(i, rewriter.getContext()));
+        }
+
+        auto maps = AffineMap::inferFromExprList({srcExprs, dstExprs, dstExprs},
+                                                 rewriter.getContext());
+        auto linalgOp = rewriter.create<linalg::GenericOp>(
+            loc, ArrayRef<Type>({resultTy, resultMaxTy}), input,
+            ValueRange({filledTensorIdx, filledTensorMax}), maps, iteratorTypes,
+            [&](OpBuilder &nestedBuilder, Location nestedLoc,
+                ValueRange blockArgs)
+            {
+              auto newValue = blockArgs[0];
+              auto oldIndex = blockArgs[1];
+              auto oldValue = blockArgs[2];
+
+              Value newIndex = rewriter.create<arith::IndexCastOp>(
+                  nestedLoc, oldIndex.getType(),
+                  rewriter.create<linalg::IndexOp>(loc, axis));
+
+              Value predicate;
+              if (isa<FloatType>(inElementTy))
+              {
+                  // For Max: newValue > oldValue
+                  predicate = rewriter.create<arith::CmpFOp>(
+                      nestedLoc, arith::CmpFPredicate::OGT, newValue, oldValue);
+              }
+              else if (isa<IntegerType>(inElementTy))
+              {
+                predicate = rewriter.create<arith::CmpIOp>(
+                    nestedLoc, arith::CmpIPredicate::sgt, newValue, oldValue);
+              }
+              
+              auto resultMax = rewriter.create<arith::SelectOp>(
+                  nestedLoc, predicate, newValue, oldValue);
+              auto resultIndex = rewriter.create<arith::SelectOp>(
+                  nestedLoc, predicate, newIndex, oldIndex);
+              nestedBuilder.create<linalg::YieldOp>(
+                  nestedLoc, ValueRange({resultIndex, resultMax}));
+            });
+
+        rewriter.replaceOp(argmaxOp, linalgOp.getResult(0));
+        return success();
+      }
+    };
+
+    //----------------------------------------------------------------
+    //                          ReduceOp
+    //----------------------------------------------------------------
+    class ReduceOpConverter : public OpRewritePattern<nova::ReduceOp>
+    {
+    public:
+      using OpRewritePattern<nova::ReduceOp>::OpRewritePattern;
+
+      LogicalResult matchAndRewrite(nova::ReduceOp op,
+                                    PatternRewriter &rewriter) const final
+      {
+        Location loc = op.getLoc();
+        Value v = op.getInput();
+        auto inputType = cast<RankedTensorType>(v.getType());
+        auto resultRankedType = cast<RankedTensorType>(op.getType());
+        Type elemType = inputType.getElementType();
+        int64_t rank = inputType.getRank();
+
+        SmallVector<int64_t> axes;
+        if (auto dims = op.getDimension()) {
+            for (auto attr : *dims) {
+            int64_t axis = cast<IntegerAttr>(attr).getInt();
+            if (axis < 0) axis += rank;
+            axes.push_back(axis);
+            }
+        } else {
+            for (int64_t i = 0; i < rank; ++i) axes.push_back(i);
+        }
+
+        Value current = v;
+
+        // Helper to get initial value
+        auto getInitVal = [&](nova::ReductionKind kind, Type type) -> Value {
+            if (kind == nova::ReductionKind::SUM || kind == nova::ReductionKind::MEAN) {
+            return rewriter.create<arith::ConstantOp>(loc, rewriter.getZeroAttr(type));
+            } else if (kind == nova::ReductionKind::PRODUCT) {
+            if (auto floatType = llvm::dyn_cast<FloatType>(type))
+                return rewriter.create<arith::ConstantOp>(loc, rewriter.getFloatAttr(type, 1.0));
+            return rewriter.create<arith::ConstantOp>(loc, rewriter.getIntegerAttr(type, 1));
+            } else if (kind == nova::ReductionKind::MAX) {
+            if (auto floatType = llvm::dyn_cast<FloatType>(type))
+                return rewriter.create<arith::ConstantOp>(loc, rewriter.getFloatAttr(type, APFloat::getInf(floatType.getFloatSemantics(), true))); // Neg Inf
+            return rewriter.create<arith::ConstantOp>(loc, rewriter.getIntegerAttr(type, llvm::APInt::getSignedMinValue(type.getIntOrFloatBitWidth())));
+            } else if (kind == nova::ReductionKind::MIN) {
+            if (auto floatType = llvm::dyn_cast<FloatType>(type))
+                return rewriter.create<arith::ConstantOp>(loc, rewriter.getFloatAttr(type, APFloat::getInf(floatType.getFloatSemantics(), false))); // Pos Inf
+            return rewriter.create<arith::ConstantOp>(loc, rewriter.getIntegerAttr(type, llvm::APInt::getSignedMaxValue(type.getIntOrFloatBitWidth())));
+            }
+            return nullptr;
+        };
+
+        // Perform reduction for each axis
+        for (int64_t axis : axes) {
+            auto currentRankedType = cast<RankedTensorType>(current.getType());
+            SmallVector<int64_t> nextShape = llvm::to_vector(currentRankedType.getShape());
+            nextShape[axis] = 1;
+
+            auto nextType = RankedTensorType::get(nextShape, elemType, inputType.getEncoding());
+            Value init = getInitVal(op.getKind(), elemType);
+            Value empty = rewriter.create<tensor::EmptyOp>(loc, nextShape, elemType, inputType.getEncoding());
+            Value out = rewriter.create<linalg::FillOp>(loc, init, empty).getResult(0);
+
+            SmallVector<utils::IteratorType> iteratorTypes(currentRankedType.getRank(), utils::IteratorType::parallel);
+            iteratorTypes[axis] = utils::IteratorType::reduction;
+
+            auto identityMap = rewriter.getMultiDimIdentityMap(currentRankedType.getRank());
+            SmallVector<AffineExpr> exprs;
+            for (int64_t i = 0; i < currentRankedType.getRank(); ++i) {
+            if (i != axis) exprs.push_back(rewriter.getAffineDimExpr(i));
+            else exprs.push_back(rewriter.getAffineConstantExpr(0));
+            }
+            auto reductionMap = AffineMap::get(currentRankedType.getRank(), 0, exprs, rewriter.getContext());
+            SmallVector<AffineMap> indexingMaps = {identityMap, reductionMap};
+
+            current = rewriter.create<linalg::GenericOp>(
+                loc, TypeRange{nextType}, current, out, indexingMaps, iteratorTypes,
+                [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+                Value reduced;
+                switch (op.getKind()) {
+                    case nova::ReductionKind::SUM:
+                    case nova::ReductionKind::MEAN:
+                    if (llvm::isa<FloatType>(elemType)) reduced = b.create<arith::AddFOp>(nestedLoc, args[0], args[1]);
+                    else reduced = b.create<arith::AddIOp>(nestedLoc, args[0], args[1]);
+                    break;
+                    case nova::ReductionKind::MAX:
+                    if (llvm::isa<FloatType>(elemType)) reduced = b.create<arith::MaximumFOp>(nestedLoc, args[0], args[1]);
+                    else reduced = b.create<arith::MaxSIOp>(nestedLoc, args[0], args[1]);
+                    break;
+                    case nova::ReductionKind::MIN:
+                    if (llvm::isa<FloatType>(elemType)) reduced = b.create<arith::MinimumFOp>(nestedLoc, args[0], args[1]);
+                    else reduced = b.create<arith::MinSIOp>(nestedLoc, args[0], args[1]);
+                    break;
+                    case nova::ReductionKind::PRODUCT:
+                    if (llvm::isa<FloatType>(elemType)) reduced = b.create<arith::MulFOp>(nestedLoc, args[0], args[1]);
+                    else reduced = b.create<arith::MulIOp>(nestedLoc, args[0], args[1]);
+                    break;
+                    default: reduced = args[0]; break;
+                }
+                b.create<linalg::YieldOp>(nestedLoc, reduced);
+                }).getResult(0);
+        }
+
+        // Handle MEAN separately (divide by product of reduced dimensions)
+        if (op.getKind() == nova::ReductionKind::MEAN) {
+            int64_t totalReducedElements = 1;
+            for (int64_t axis : axes) totalReducedElements *= inputType.getShape()[axis];
+            
+            auto currentRankedType = cast<RankedTensorType>(current.getType());
+            SmallVector<int64_t> divisorShape(currentRankedType.getRank(), 1);
+            auto divisorType = RankedTensorType::get(divisorShape, elemType, inputType.getEncoding());
+            
+            Value divisor;
+            if (auto floatType = llvm::dyn_cast<FloatType>(elemType)) {
+            auto attr = DenseElementsAttr::get(divisorType, rewriter.getFloatAttr(elemType, (double)totalReducedElements));
+            divisor = rewriter.create<tosa::ConstOp>(loc, divisorType, attr);
+            } else {
+            auto attr = DenseElementsAttr::get(divisorType, rewriter.getIntegerAttr(elemType, totalReducedElements));
+            divisor = rewriter.create<tosa::ConstOp>(loc, divisorType, attr);
+            }
+            
+            
+             Value divOut = rewriter.create<tensor::EmptyOp>(loc, currentRankedType.getShape(), elemType, inputType.getEncoding());
+             AffineMap divIdentity = rewriter.getMultiDimIdentityMap(currentRankedType.getRank()); 
+             // Divisor map must supply (0,0...). Since divisor is (1,1...) it works by default broadcasting? 
+             // Wait, if divisor is (1,1,1), and we use Identity Map, index (i,j,k) accesses (i,j,k). That is Out of Bounds if i>0.
+             // We need map (i,j,k) -> (0,0,0).
+             SmallVector<AffineExpr> zeros(currentRankedType.getRank(), rewriter.getAffineConstantExpr(0));
+             AffineMap zeroMap = AffineMap::get(currentRankedType.getRank(), 0, zeros, rewriter.getContext());
+             
+             current = rewriter.create<linalg::GenericOp>(
+                 loc, TypeRange{divOut.getType()}, ValueRange{current, divisor}, divOut,
+                 ArrayRef<AffineMap>{divIdentity, zeroMap, divIdentity},
+                 getNParallelLoopsAttrs(currentRankedType.getRank()),
+                 [&](OpBuilder &b, Location nestedLoc, ValueRange args) {
+                     Value val = args[0];
+                     Value div = args[1];
+                     Value res;
+                     if (llvm::isa<FloatType>(elemType)) res = b.create<arith::DivFOp>(nestedLoc, val, div);
+                     else res = b.create<arith::DivSIOp>(nestedLoc, val, div);
+                     b.create<linalg::YieldOp>(nestedLoc, res);
+                 }
+             ).getResult(0);
+        }
+
+        if (!op.getKeepdims()) {
+            auto finalType = resultRankedType;
+            auto shapeType = RankedTensorType::get({finalType.getRank()}, rewriter.getIndexType());
+            auto shapeAttr = DenseIntElementsAttr::get(shapeType, finalType.getShape());
+            auto shapeConst = rewriter.create<tosa::ConstShapeOp>(
+                loc, mlir::tosa::shapeType::get(rewriter.getContext(), finalType.getRank()),
+                shapeAttr);
+            current = rewriter.create<tosa::ReshapeOp>(loc, finalType, current, shapeConst);
+        }
+
+        rewriter.replaceOp(op, current);
+        return success();
+
+      }
+    };
+
+
     // generic pattern definition
 
     template <typename NovaOpTy>
@@ -1119,7 +1319,6 @@ namespace mlir
         target.addIllegalOp<nova::AcosOp>();
         target.addIllegalOp<nova::AcoshOp>();
         target.addIllegalOp<nova::AddOp>();
-        target.addIllegalOp<nova::ArgMinOp>();
         target.addIllegalOp<nova::AsinOp>();
         target.addIllegalOp<nova::AsinhOp>();
         target.addIllegalOp<nova::AtanOp>();
@@ -1136,6 +1335,9 @@ namespace mlir
         target.addIllegalOp<nova::Log10Op>();
         target.addIllegalOp<nova::Log2Op>();
         target.addIllegalOp<nova::MatmulOp>();
+        target.addIllegalOp<nova::ArgmaxOp>();
+        target.addIllegalOp<nova::ArgMinOp>();
+        target.addIllegalOp<nova::ReduceOp>();
         target.addIllegalOp<nova::ModOp>();
         target.addIllegalOp<nova::MaxOp>();
         target.addIllegalOp<nova::MinOp>();
@@ -1219,8 +1421,10 @@ namespace mlir
           NovaToLinalgElementwiseConverter<nova::AtanhOp>,
           NovaToLinalgElementwiseConverter<nova::CompareOp>,
           NovaToLinalgElementwiseConverter<nova::SignOp>,
-
-          ArgMinConverter>(patterns.getContext());
+          ArgMinConverter,
+          ArgMaxConverter,
+          ReduceOpConverter
+        >(patterns.getContext());
     }
 
   } // namespace nova

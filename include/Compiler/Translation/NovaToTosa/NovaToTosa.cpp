@@ -80,42 +80,6 @@ struct NovaOpTosaOp {
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
     return builder->create<tosa::MinimumOp>(op.getLoc(), resultType, v, w);
   }
-  static Value mappingtosa(nova::TransposeOp op, Type resultType,
-                           ValueRange input, OpBuilder *builder) {
-    auto loc = op.getLoc();
-
-    auto inputType = dyn_cast<mlir::TensorType>(input[0].getType());
-    auto resultTensorType = dyn_cast<mlir::TensorType>(resultType);
-    if (!inputType || !resultTensorType) {
-      op.emitError("expected ranked tensor types");
-      return nullptr;
-    }
-
-    int64_t rank = inputType.getRank();
-    auto inShape = inputType.getShape();
-    auto outShape = resultTensorType.getShape();
-
-    // ---- derive permutation ----
-    llvm::SmallVector<int32_t> perms;
-    perms.reserve(rank);
-    llvm::SmallVector<bool> used(rank, false);
-
-    for (int64_t i = 0; i < rank; ++i) {
-      for (int64_t j = 0; j < rank; ++j) {
-        if (!used[j] && inShape[j] == outShape[i]) {
-          perms.push_back(static_cast<int32_t>(j));
-          used[j] = true;
-          break;
-        }
-      }
-    }
-
-    // ---- create transpose ----
-    auto permsAttr = builder->getDenseI32ArrayAttr(perms);
-
-    return builder->create<tosa::TransposeOp>(loc, resultTensorType, input[0],
-                                              permsAttr);
-  }
   static Value mappingtosa(nova::AndOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
@@ -438,352 +402,7 @@ struct NovaOpTosaOp {
                            ValueRange input, OpBuilder *builder) {
     return builder->create<tosa::SigmoidOp>(op.getLoc(), resultType, input[0]);
   }
-  //-------------------------reduce case helper----------------------
-  static Value mappincasereduce(nova::ReduceOp op, Type temresult, Value v,
-                                mlir::IntegerAttr axisAttr, OpBuilder *builder,
-                                mlir::StringAttr nanmode) {
-    nova::ReductionKind rk = op.getKind();
-    switch (rk) {
-    case nova::ReductionKind::MAX:
-      return builder->create<tosa::ReduceMaxOp>(op.getLoc(), temresult, v,
-                                                axisAttr, nanmode);
-    case nova::ReductionKind::MIN:
-      return builder->create<tosa::ReduceMinOp>(op.getLoc(), temresult, v,
-                                                axisAttr, nanmode);
-    case nova::ReductionKind::PRODUCT:
-      return builder->create<tosa::ReduceProductOp>(op.getLoc(), temresult, v,
-                                                    axisAttr);
-    case nova::ReductionKind::SUM:
-      return builder->create<tosa::ReduceSumOp>(op.getLoc(), temresult, v,
-                                                axisAttr);
-
-    case nova::ReductionKind::MEAN: {
-      auto sum = builder->create<tosa::ReduceSumOp>(op.getLoc(), temresult, v,
-                                                    axisAttr);
-      int64_t axis = axisAttr.getInt();
-      auto inputType = cast<RankedTensorType>(v.getType());
-      int64_t dimSize = inputType.getDimSize(axis);
-
-      Value divisor;
-      auto elementType = inputType.getElementType();
-
-      if (inputType.isDynamicDim(axis)) {
-        Value dimVal = builder->create<tensor::DimOp>(op.getLoc(), v, axis);
-        if (isa<FloatType>(elementType)) {
-          divisor = builder->create<mlir::arith::IndexCastOp>(
-              op.getLoc(), builder->getI64Type(), dimVal);
-          divisor = builder->create<mlir::arith::UIToFPOp>(
-              op.getLoc(), elementType, divisor);
-        } else {
-          divisor = builder->create<mlir::arith::IndexCastOp>(
-              op.getLoc(), elementType, dimVal);
-        }
-      } else {
-        if (isa<FloatType>(elementType)) {
-          divisor = builder->create<tosa::ConstOp>(
-              op.getLoc(),
-              RankedTensorType::get(
-                  {}, elementType,
-                  cast<RankedTensorType>(temresult).getEncoding()),
-              DenseElementsAttr::get(
-                  RankedTensorType::get(
-                      {}, elementType,
-                      cast<RankedTensorType>(temresult).getEncoding()),
-                  builder->getFloatAttr(elementType,
-                                        static_cast<double>(dimSize))));
-        } else {
-          divisor = builder->create<tosa::ConstOp>(
-              op.getLoc(),
-              RankedTensorType::get(
-                  {}, elementType,
-                  cast<RankedTensorType>(temresult).getEncoding()),
-              DenseElementsAttr::get(
-                  RankedTensorType::get(
-                      {}, elementType,
-                      cast<RankedTensorType>(temresult).getEncoding()),
-                  builder->getIntegerAttr(elementType, dimSize)));
-        }
-      }
-
-      // Reshape divisor to match rank of sum for broadcasting
-      auto resultType = cast<RankedTensorType>(temresult);
-      int64_t rank = resultType.getRank();
-      SmallVector<int64_t> newShape(rank, 1);
-
-      auto shapeType = RankedTensorType::get({rank}, builder->getIndexType());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
-      auto shapeConst = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(), mlir::tosa::shapeType::get(builder->getContext(), rank),
-          shapeAttr);
-
-      auto reshapedDivisorType = RankedTensorType::get(
-          newShape, elementType, resultType.getEncoding());
-      auto reshapedDivisor = builder->create<tosa::ReshapeOp>(
-          op.getLoc(), reshapedDivisorType, divisor, shapeConst);
-
-      if (isa<FloatType>(elementType)) {
-        auto reciprocal = builder->create<tosa::ReciprocalOp>(
-            op.getLoc(), reshapedDivisorType, reshapedDivisor);
-        auto shift = builder->create<tosa::ConstOp>(
-            op.getLoc(), RankedTensorType::get({1}, builder->getI8Type()),
-            DenseElementsAttr::get(
-                RankedTensorType::get({1}, builder->getI8Type()),
-                builder->getI8IntegerAttr(0)));
-        return builder->create<tosa::MulOp>(op.getLoc(), temresult, sum,
-                                            reciprocal, shift);
-      } else {
-        return builder->create<tosa::IntDivOp>(op.getLoc(), temresult, sum,
-                                               reshapedDivisor);
-      }
-    }
-    case nova::ReductionKind::ALL:
-      return builder->create<tosa::ReduceAllOp>(op.getLoc(), temresult, v,
-                                                axisAttr);
-    case nova::ReductionKind::ANY:
-      return builder->create<tosa::ReduceAnyOp>(op.getLoc(), temresult, v,
-                                                axisAttr);
-    }
-    return nullptr;
-  }
-
-  //-------------------------Reduce-ArgMax---------------------------
-
-  static Value mappingtosa(nova::ArgmaxOp op, Type resultType, ValueRange input,
-                           OpBuilder *builder) {
-    Value v = input[0]; // the final result is store in this
-    auto inputType = dyn_cast<RankedTensorType>(v.getType());
-    auto resultdt = dyn_cast<RankedTensorType>(resultType);
-    auto ignorenanAttr = op.getIgnoreNan();
-    mlir::StringAttr nanmode = builder->getStringAttr("PROPAGATE");
-
-    if (ignorenanAttr) {
-      nanmode = builder->getStringAttr("IGNORE");
-    }
-    // getting dimension
-    auto dimensionAttr = op.getDimension();
-    // reducing with dimesion-----------
-    if (dimensionAttr.has_value()) {
-      int64_t axisValue = dimensionAttr.value();
-      // getting value for axis attribute
-      auto axisAttr = builder->getI32IntegerAttr(axisValue);
-      // cretaing result tensor
-      auto tempshape = shapeFindargmax(inputType, axisValue);
-      auto temptype = RankedTensorType::get(
-          tempshape, resultdt.getElementType(), resultdt.getEncoding());
-
-      // we have to replac the resulttype
-      v = builder->create<tosa::ArgMaxOp>(op.getLoc(), temptype, v, axisAttr,
-                                          nanmode);
-      //  op.emitOpError("dimension attribute missing for TOSA mapping");
-    }
-    // No dimension - reduce all dimension
-    else {
-      auto finalShape = shapeFindforargmax(v.getType());
-      // Create the final result type
-      auto finalType = RankedTensorType::get({}, resultdt.getElementType(),
-                                             resultdt.getEncoding());
-      auto shapeTensorType =
-          RankedTensorType::get({1}, builder->getIndexType());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeTensorType, finalShape);
-      // flatten it and
-      //  Create const op
-      Value shapeValue = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(), mlir::tosa::shapeType::get(builder->getContext(), 1),
-          shapeAttr);
-      // Perform reshape
-      Value reshapedres =
-          builder->create<tosa::ReshapeOp>(op.getLoc(), v, shapeValue);
-      auto axisAttr = builder->getI32IntegerAttr(0);
-      v = builder->create<tosa::ArgMaxOp>(op.getLoc(), finalType, reshapedres,
-                                          axisAttr, nanmode);
-    }
-    // KEEP DIMS
-    if (op.getKeepdims()) {
-      auto finalShape = resultdt.getShape();
-
-      // Create the final result type
-      auto finalType = RankedTensorType::get(
-          finalShape, resultdt.getElementType(), resultdt.getEncoding());
-      auto shapeTensorType = RankedTensorType::get(
-          {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
-
-      SmallVector<int64_t> shapeValues(finalShape.begin(), finalShape.end());
-
-      auto shapeAttr = DenseIntElementsAttr::get(
-          shapeTensorType,
-          llvm::ArrayRef(shapeValues.data(), shapeValues.size()));
-
-      // Create const op
-      Value shapeValue = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(),
-          mlir::tosa::shapeType::get(builder->getContext(), finalShape.size()),
-          shapeAttr);
-
-      // Perform reshape
-      v = builder->create<tosa::ReshapeOp>(op.getLoc(), finalType, v,
-                                           shapeValue);
-    }
-
-    return v;
-  }
-  //----------------------------------------ARGMIN-----------------------------
-
-  static Value mappingtosa(nova::ArgMinOp op, Type resultType, ValueRange input,
-                           OpBuilder *builder) {
-    Value v = input[0]; // the final result is store in this
-    auto inputType = dyn_cast<RankedTensorType>(v.getType());
-    auto resultdt = dyn_cast<RankedTensorType>(resultType);
-    auto ignorenanAttr = op.getIgnoreNan();
-    mlir::StringAttr nanmode = builder->getStringAttr("PROPAGATE");
-
-    if (ignorenanAttr) {
-      nanmode = builder->getStringAttr("IGNORE");
-    }
-    v = builder->create<tosa::NegateOp>(op.getLoc(), v.getType(), v);
-
-    // getting dimension
-    auto dimensionAttr = op.getDimension();
-    // reducing with dimesion-----------
-    if (dimensionAttr.has_value()) {
-      int64_t axisValue = dimensionAttr.value();
-      // getting value for axis attribute
-      auto axisAttr = builder->getI32IntegerAttr(axisValue);
-      // cretaing result tensor
-      auto tempshape = shapeFindargmax(inputType, axisValue);
-      auto temptype = RankedTensorType::get(
-          tempshape, resultdt.getElementType(), resultdt.getEncoding());
-
-      // we have to replac the resulttype
-      v = builder->create<tosa::ArgMaxOp>(op.getLoc(), temptype, v, axisAttr,
-                                          nanmode);
-      //  op.emitOpError("dimension attribute missing for TOSA mapping");
-    }
-    // No dimension - reduce all dimension
-    else {
-      auto finalShape = shapeFindforargmax(v.getType());
-      // Create the final result type
-      auto finalType = RankedTensorType::get({}, resultdt.getElementType(),
-                                             resultdt.getEncoding());
-      auto shapeTensorType =
-          RankedTensorType::get({1}, builder->getIndexType());
-      auto shapeAttr = DenseIntElementsAttr::get(shapeTensorType, finalShape);
-      // flatten it and
-      //  Create const op
-      Value shapeValue = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(), mlir::tosa::shapeType::get(builder->getContext(), 1),
-          shapeAttr);
-      // Perform reshape
-      Value reshapedres =
-          builder->create<tosa::ReshapeOp>(op.getLoc(), v, shapeValue);
-      auto axisAttr = builder->getI32IntegerAttr(0);
-      v = builder->create<tosa::ArgMaxOp>(op.getLoc(), finalType, reshapedres,
-                                          axisAttr, nanmode);
-    }
-    // KEEP DIMS
-    if (op.getKeepdims()) {
-      auto finalShape = resultdt.getShape();
-
-      // Create the final result type
-      auto finalType = RankedTensorType::get(
-          finalShape, resultdt.getElementType(), resultdt.getEncoding());
-      auto shapeTensorType = RankedTensorType::get(
-          {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
-
-      SmallVector<int64_t> shapeValues(finalShape.begin(), finalShape.end());
-
-      auto shapeAttr = DenseIntElementsAttr::get(
-          shapeTensorType,
-          llvm::ArrayRef(shapeValues.data(), shapeValues.size()));
-
-      // Create const op
-      Value shapeValue = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(),
-          mlir::tosa::shapeType::get(builder->getContext(), finalShape.size()),
-          shapeAttr);
-      // Perform reshape
-      v = builder->create<tosa::ReshapeOp>(op.getLoc(), finalType, v,
-                                           shapeValue);
-    }
-
-    return v;
-  }
-  //---------------------------Reduce-Op---------------------------------
-
-  static Value mappingtosa(nova::ReduceOp op, Type resultType, ValueRange input,
-                           OpBuilder *builder) {
-    Value v = input[0]; // the final result is store in this
-    // getting the axis from dimension
-    auto dimensionAttr = op.getDimension();
-    auto inputType = dyn_cast<RankedTensorType>(v.getType());
-    auto result1Type = dyn_cast<RankedTensorType>(resultType);
-    // setting ignore nan attribute to nan mode
-    auto ignorenanAttr = op.getIgnoreNan();
-    mlir::StringAttr nanmode = builder->getStringAttr("PROPAGATE");
-
-    if (ignorenanAttr) {
-      nanmode = builder->getStringAttr("IGNORE");
-    }
-
-    // 🪻👍🏻🪻
-    // reducing with dimesion-----------
-    if (dimensionAttr.has_value()) {
-      auto dimension = dimensionAttr.value();
-      for (auto dim : dimension) {
-        // getting value for axis attribute
-        int64_t axisValue = dyn_cast<IntegerAttr>(dim).getInt();
-        auto axisAttr = builder->getI32IntegerAttr(axisValue);
-        // getting temp shape
-        auto tempshape =
-            shapeFind(v.getType(), axisValue); // placeholder for now
-        auto currType = cast<RankedTensorType>(v.getType());
-        auto tempresult = RankedTensorType::get(
-            tempshape, currType.getElementType(), currType.getEncoding());
-        // getting the correct operation
-        v = mappincasereduce(op, tempresult, v, axisAttr, builder, nanmode);
-      }
-    }
-    // No dimension - reduce all dimension
-    else {
-      auto inputRank = inputType.getRank();
-      for (int64_t axis = inputRank - 1; axis >= 0; --axis) {
-        auto axisAttr = builder->getI32IntegerAttr(axis);
-        auto tempShape = shapeFind(v.getType(), axis);
-        auto currType = cast<RankedTensorType>(v.getType());
-        auto tempresult = RankedTensorType::get(
-            tempShape, currType.getElementType(), currType.getEncoding());
-        v = mappincasereduce(op, tempresult, v, axisAttr, builder, nanmode);
-      }
-    }
-    // NEED TO ADD KEEP DIMS HERE
-    if (!op.getKeepdims()) {
-      auto currentType = cast<RankedTensorType>(v.getType());
-      auto finalShape = result1Type.getShape();
-
-      // Create the final result type
-      auto finalType = RankedTensorType::get(
-          finalShape, currentType.getElementType(), currentType.getEncoding());
-      auto shapeTensorType = RankedTensorType::get(
-          {static_cast<int64_t>(finalShape.size())}, builder->getIndexType());
-
-      SmallVector<int64_t> shapeValues(finalShape.begin(), finalShape.end());
-
-      auto shapeAttr = DenseIntElementsAttr::get(
-          shapeTensorType,
-          llvm::ArrayRef(shapeValues.data(), shapeValues.size()));
-
-      // Create const op
-      Value shapeValue = builder->create<tosa::ConstShapeOp>(
-          op.getLoc(),
-          mlir::tosa::shapeType::get(builder->getContext(), finalShape.size()),
-          shapeAttr);
-
-      // Perform reshape
-      v = builder->create<tosa::ReshapeOp>(op.getLoc(), finalType, v,
-                                           shapeValue);
-    }
-
-    return v;
-  }
+  
   // MAE lowering pattern
   static Value mappingtosa(nova::MaeOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
@@ -829,7 +448,7 @@ struct NovaOpTosaOp {
     auto sub = builder->create<tosa::SubOp>(op.getLoc(), newVType, v, w);
 
     mlir::RankedTensorType constType = mlir::RankedTensorType::get(
-        v_type.getShape(), builder->getF32Type());
+        v_type.getShape(), builder->getF32Type(), v_type.getEncoding());
     mlir::DenseElementsAttr constAttr =
         mlir::DenseElementsAttr::get(constType, llvm::ArrayRef<float_t>(2));
     auto constTwo =
@@ -864,7 +483,7 @@ struct NovaOpTosaOp {
         w_type.getShape(), targetElemType, w_type.getEncoding());
     auto w = builder->create<tosa::CastOp>(op.getLoc(), newWType, input[1]);
     // step1:creating 1x10^-7  tensor constant
-    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType);
+    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType, v_type.getEncoding());
     auto epiAttr =
         DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(0.0000001f));
     Value epi = builder->create<tosa::ConstOp>(op.getLoc(), hostVType, epiAttr);
@@ -896,7 +515,7 @@ struct NovaOpTosaOp {
     auto mul = builder->create<nova::MulOp>(op.getLoc(), log, w);
     // step6:create -1 constant tensor (scalar)
     auto constType =
-        mlir::RankedTensorType::get({}, targetElemType);
+        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
     auto minus1Attr =
         DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
     Value minus1 =
@@ -929,7 +548,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::BceOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     // basic casting logic
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = cast<mlir::RankedTensorType>(resultType);
     auto targetElemType = restensor.getElementType();
     auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
     auto newVType = mlir::RankedTensorType::get(
@@ -942,7 +561,7 @@ struct NovaOpTosaOp {
         w_type.getShape(), targetElemType, w_type.getEncoding());
     // auto w = builder->create<tosa::CastOp>(op.getLoc(), newVType,input[1]);
     // step1:creating 1x10^-7  tensor constant
-    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType);
+    auto hostVType = mlir::RankedTensorType::get(newVType.getShape(), targetElemType, v_type.getEncoding());
     auto epiAttr =
         DenseElementsAttr::get(hostVType, builder->getF32FloatAttr(0.0000001f));
     Value epi = builder->create<tosa::ConstOp>(op.getLoc(), hostVType, epiAttr);
@@ -996,7 +615,7 @@ struct NovaOpTosaOp {
 
     // step11:create -1 constant tensor (scalar)
     auto constType =
-        mlir::RankedTensorType::get({}, targetElemType);
+        mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
     auto minus1Attr =
         DenseElementsAttr::get(constType, builder->getF32FloatAttr(-1.0));
     Value minus1 =
@@ -1038,7 +657,7 @@ struct NovaGeluOpLowering : public OpConversionPattern<mlir::nova::GeluOp> {
     }
     // Helper to get type without device encoding for constants
     auto stripEncoding = [&](RankedTensorType type) -> RankedTensorType {
-      return RankedTensorType::get(type.getShape(), type.getElementType());
+      return RankedTensorType::get(type.getShape(), type.getElementType(), type.getEncoding());
     };
     auto hostInputType = stripEncoding(inputType);
 
@@ -1097,7 +716,7 @@ struct NovaReluOpLowering : public OpConversionPattern<mlir::nova::ReluOp> {
     } else {
       return failure();
     }
-    auto hostInputType = RankedTensorType::get(inputType.getShape(), elementType);
+    auto hostInputType = RankedTensorType::get(inputType.getShape(), elementType, inputType.getEncoding());
     DenseElementsAttr zeroTensor = DenseElementsAttr::get(hostInputType, zeroAttr);
     Value zero = rewriter.create<mlir::nova::ConstantOp>(loc, hostInputType, zeroTensor);
     Value result =
@@ -1228,7 +847,7 @@ struct NovaConstantToTosaConstPattern
     DenseElementsAttr value = dyn_cast<DenseElementsAttr>(valueAttr);
 
     auto outputType = cast<RankedTensorType>(op.getOutput().getType());
-    auto hostOutputType = RankedTensorType::get(outputType.getShape(), outputType.getElementType());
+    auto hostOutputType = RankedTensorType::get(outputType.getShape(), outputType.getElementType(), outputType.getEncoding());
     auto hostValue = value.reshape(hostOutputType);
     rewriter.replaceOpWithNewOp<tosa::ConstOp>(op, hostOutputType,
                                                hostValue);
@@ -1281,11 +900,8 @@ struct NovaToTosaLoweringPass
           target.addIllegalOp<nova::CosOp>();
           target.addIllegalOp<nova::TanhOp>();
           target.addIllegalOp<nova::ReciprocalOp>();
-         target.addIllegalOp<nova::ReduceOp>();
-          target.addIllegalOp<nova::ArgmaxOp>();
           target.addIllegalOp<nova::MseOp>();
           target.addIllegalOp<nova::CceOp>();
-          target.addIllegalOp<nova::ArgMinOp>();
           target.addIllegalOp<nova::SigmoidOp>();
           target.addIllegalOp<nova::GeluOp>();
           target.addIllegalOp<nova::SoftmaxOp>();
@@ -1293,7 +909,6 @@ struct NovaToTosaLoweringPass
           //target.addIllegalOp<nova::MatmulOp>();
           target.addIllegalOp<nova::AddOp>();
           target.addIllegalOp<nova::MaeOp>();
-          target.addIllegalOp<nova::TransposeOp>();
           target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
           TypeConverter typeConverter;
           typeConverter.addConversion([](Type type)
@@ -1334,15 +949,11 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
            NovaToTosaLoweringTemplate<nova::XorOp>,
            NovaToTosaLoweringTemplate<nova::NotOp>,
            NovaToTosaLoweringTemplate<nova::NegOp>,
-           NovaToTosaLoweringTemplate<nova::TransposeOp>,
            NovaToTosaLoweringTemplate<nova::ReciprocalOp>,
-           NovaToTosaLoweringTemplate<nova::ReduceOp>,
            NovaToTosaLoweringTemplate<nova::MaeOp>,
            NovaToTosaLoweringTemplate<nova::MseOp>,
            NovaToTosaLoweringTemplate<nova::CceOp>,
            NovaToTosaLoweringTemplate<nova::BceOp>,
-           NovaToTosaLoweringTemplate<nova::ArgmaxOp>,
-           NovaToTosaLoweringTemplate<nova::ArgMinOp>,
            //    NovaToTosaLoweringTemplate<nova::ConstantOp>,
            NovaToTosaLoweringTemplate<nova::SigmoidOp>>(patterns.getContext());
 }
