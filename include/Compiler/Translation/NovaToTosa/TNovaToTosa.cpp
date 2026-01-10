@@ -29,10 +29,7 @@ struct NovaOpTosaOp {
                             OpBuilder *builder) {
 
     auto restensor = dyn_cast<mlir::TensorType>(resultType);
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-    auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-
-    return builder->create<tosa::SubOp>(op.getLoc(), resultType, v, w);
+    return builder->create<tosa::SubOp>(op.getLoc(), resultType, input[0], input[1]);
   }
   static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {

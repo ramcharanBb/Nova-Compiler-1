@@ -27,7 +27,7 @@ static Attribute getBinaryResultEncoding(Attribute lhsEncoding,
       (rhsAttr && rhsAttr.getValue() == "1"))
     return NovaDeviceAttr::get(context, StringAttr::get(context, "1"));
 
-  return NovaDeviceAttr::get(context, StringAttr::get(context, "0"));
+  return Attribute();
 }
 
 // Helper to determine result encoding for unary operations
@@ -35,7 +35,7 @@ static Attribute getUnaryResultEncoding(Attribute operandEncoding,
                                         MLIRContext *context) {
   if (auto attr = llvm::dyn_cast_or_null<NovaDeviceAttr>(operandEncoding))
     return attr;
-  return NovaDeviceAttr::get(context, StringAttr::get(context, "0"));
+  return Attribute();
 }
 
 // type promotion for result type -heirarchy

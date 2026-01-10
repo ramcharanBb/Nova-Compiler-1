@@ -36,18 +36,7 @@ def Nova_DeviceAttr : AttrDef<Nova_Dialect, "NovaDevice"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
-def Nova_Tensor : Type<
-  And<[
-    RankedTensorOf<[Nova_ElementType]>.predicate,
-    CPred<[{ 
-      [&]() {
-        if (auto rankedTy = llvm::dyn_cast<::mlir::RankedTensorType>($_self)) {
-          return rankedTy.getEncoding() && llvm::isa<::mlir::nova::NovaDeviceAttr>(rankedTy.getEncoding());
-        }
-        return false;
-      }()
-    }]>
-  ]>, "a ranked tensor with a nova device encoding">;
+def Nova_Tensor : RankedTensorOf<[Nova_ElementType]>;
   
   // operations start
 //enum 
