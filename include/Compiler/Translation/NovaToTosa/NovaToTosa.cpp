@@ -169,6 +169,35 @@ struct NovaOpTosaOp {
 
     return builder->create<tosa::ExpOp>(op.getLoc(), resultType, v);
   }
+  // square op
+  static Value mappingtosa(nova::SquareOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+    auto shift = builder->create<tosa::ConstOp>(
+        op.getLoc(),
+        RankedTensorType::get({1}, builder->getI8Type(),
+                              restensor.getEncoding()),
+        DenseElementsAttr::get(RankedTensorType::get({1}, builder->getI8Type()),
+                               {static_cast<int8_t>(0)}));
+    return builder->create<tosa::MulOp>(op.getLoc(), resultType, v, v, shift);
+  }
+  // sqrt op
+  static Value mappingtosa(nova::SqrtOp op, Type resultType, ValueRange input,
+                           OpBuilder *builder) {
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
+    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+
+    int64_t rank = restensor.getRank();
+    SmallVector<int64_t> constShape(rank, 1);
+    auto constType = RankedTensorType::get(constShape, builder->getF32Type(),
+                                           restensor.getEncoding());
+    auto constAttr = DenseElementsAttr::get(constType, {0.5f});
+    auto constOp =
+        builder->create<tosa::ConstOp>(op.getLoc(), constType, constAttr);
+
+    return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, constOp);
+  }
   // abs op
   static Value mappingtosa(nova::AbsOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
@@ -658,8 +687,9 @@ struct NovaOpTosaOp {
 
     // Step 7: Gather using linalg.generic since TOSA gather has shape
     // constraints selected_log_probs[i] = log_sm_Z[i, targets[i]]
-    Value selectedLogProbs = builder->create<nova::GatherOp>(
-        op.getLoc(), logSmZ, targets, 1).getResult();
+    Value selectedLogProbs =
+        builder->create<nova::GatherOp>(op.getLoc(), logSmZ, targets, 1)
+            .getResult();
 
     // Step 8: loss = reduce_mean(selected_log_probs * -1.0)
     // Create -1.0 constant
@@ -1000,10 +1030,8 @@ struct NovaToTosaLoweringPass
 } // namespace
 
 void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
-  patterns.add<NovaReluOpLowering, 
-               NovaGeluOpLowering,
-               NovaSoftmaxLoweringPattern,
-               NovaConstantToTosaConstPattern,
+  patterns.add<NovaReluOpLowering, NovaGeluOpLowering,
+               NovaSoftmaxLoweringPattern, NovaConstantToTosaConstPattern,
                NovaToTosaLoweringTemplate<nova::MaxOp>,
                NovaToTosaLoweringTemplate<nova::LogOp>,
                NovaToTosaLoweringTemplate<nova::AbsOp>,
@@ -1025,6 +1053,11 @@ void populateNovaToTosaConversionPatterns(RewritePatternSet &patterns) {
                NovaToTosaLoweringTemplate<nova::SceOp>,
                NovaToTosaLoweringTemplate<nova::SigmoidOp>>(
       patterns.getContext());
+
+  patterns.add<NovaToTosaLoweringTemplate<nova::SquareOp>>(
+      patterns.getContext(), 10);
+  patterns.add<NovaToTosaLoweringTemplate<nova::SqrtOp>>(patterns.getContext(),
+                                                         10);
 }
 
 // creating a pointer for this pass

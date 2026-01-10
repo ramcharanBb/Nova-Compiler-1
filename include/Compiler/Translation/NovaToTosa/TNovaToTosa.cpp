@@ -100,44 +100,9 @@ struct NovaOpTosaOp {
     w = matchRank(builder, op.getLoc(), w, targetRank);
     return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, w);
   }
-  static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input,
-                            OpBuilder *builder) {
-    auto restensor = cast<mlir::RankedTensorType>(resultType);
-    auto elemType = restensor.getElementType();
-    auto v = castElementType(builder, op.getLoc(), input[0], elemType);
-    // Create constant 0.5 tensor
-    DenseElementsAttr halfAttr;
-    if (elemType.isF32()) {
-      halfAttr =
-          DenseElementsAttr::get(RankedTensorType::get({}, elemType), builder->getF32FloatAttr(0.5f));
-    } else {
-      op.emitError("Sqrt lowering only supports floating-point tensors");
-      return nullptr;
-    }
 
-    Value half =
-        builder->create<tosa::ConstOp>(op.getLoc(), halfAttr.getType(), halfAttr);
-    return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, half);
-  }
 
-  static Value rmappingtosa(nova::SquareOp op, Type resultType,
-                            ValueRange input, OpBuilder *builder) {
-    auto restensor = cast<mlir::RankedTensorType>(resultType);
-    auto elemType = restensor.getElementType();
-    auto v = castElementType(builder, op.getLoc(), input[0], elemType);
-    // Create constant 2.0 tensor
-    DenseElementsAttr twoAttr;
-    if (elemType.isF32()) {
-      twoAttr =
-          DenseElementsAttr::get(RankedTensorType::get({}, elemType), builder->getF32FloatAttr(2.0f));
-    } else {
-      op.emitError("Square lowering only supports floating-point tensors");
-      return nullptr;
-    }
 
-    Value two = builder->create<tosa::ConstOp>(op.getLoc(), twoAttr.getType(), twoAttr);
-    return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, two);
-  }
 
   template <typename OpTy>
   static Value rmaptop(OpTy op, Type resultType, ValueRange input,
@@ -182,9 +147,7 @@ void populateNovaToTosaTemplatePatterns(mlir::RewritePatternSet &patterns) {
   patterns.add<NovaToTosaLoweringTemplater<nova::AddOp>,
                NovaToTosaLoweringTemplater<nova::SubOp>,
                NovaToTosaLoweringTemplater<nova::MulOp>,
-               NovaToTosaLoweringTemplater<nova::SquareOp>,
-               NovaToTosaLoweringTemplater<nova::PowOp>,
-               NovaToTosaLoweringTemplater<nova::SqrtOp>>(
+               NovaToTosaLoweringTemplater<nova::PowOp>>(
       patterns.getContext());
 }
 } // namespace nova
