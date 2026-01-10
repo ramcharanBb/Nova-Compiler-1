@@ -4,7 +4,8 @@
 module {
   func.func @loss_functions(
     %predictions: tensor<8x8xf32, #nova.device<"1">>,
-    %targets: tensor<8x8xf32, #nova.device<"1">>
+    %targets: tensor<8x8xf32, #nova.device<"1">>,
+    %target_indices: tensor<8xi32, #nova.device<"1">>
   ) -> (tensor<f32, #nova.device<"1">>) {
     
     // Mean Absolute Error
@@ -23,9 +24,9 @@ module {
     %cce = nova.cce %predictions, %targets 
       : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
     //Sparse Cross Entropy
-    %sce = nova.sce %predictions, %targets 
-      : tensor<8x8xf32, #nova.device<"1">>, tensor<8x8xf32, #nova.device<"1">>
-    return  %bce
+    %sce = nova.sce %predictions, %target_indices 
+      : tensor<8x8xf32, #nova.device<"1">>, tensor<8xi32, #nova.device<"1">>
+    return  %sce
       : tensor<f32, #nova.device<"1">>
   }
 }

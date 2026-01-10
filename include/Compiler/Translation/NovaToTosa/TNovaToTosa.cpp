@@ -21,17 +21,15 @@ namespace nova {
 struct NovaOpTosaOp {
   static Value rmappingtosa(nova::AddOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
+
     return builder->create<tosa::AddOp>(op.getLoc(), resultType, input[0], input[1]);
   }
 
   static Value rmappingtosa(nova::SubOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
 
-    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-    auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-
-    return builder->create<tosa::SubOp>(op.getLoc(), resultType, v, w);
+    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    return builder->create<tosa::SubOp>(op.getLoc(), resultType, input[0], input[1]);
   }
   static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {

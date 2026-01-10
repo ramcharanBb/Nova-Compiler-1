@@ -17,8 +17,8 @@ namespace mlir {
 constexpr unsigned MAX_CODE_SIZE = 200;
 constexpr unsigned L1_CACHE_SIZE = 32 * 1024;
 constexpr unsigned MAX_UNROLL_FACTOR = 16;
-constexpr unsigned INNER_LOOP_MAX_FACTOR = 8;
-constexpr unsigned MID_LOOP_MAX_FACTOR = 4;
+//constexpr unsigned INNER_LOOP_MAX_FACTOR = 8;
+//constexpr unsigned MID_LOOP_MAX_FACTOR = 4;
 
 // Helper to check if a loop has reduction pattern (accumulation)
 static bool isReductionPattern(affine::AffineForOp forOp) {

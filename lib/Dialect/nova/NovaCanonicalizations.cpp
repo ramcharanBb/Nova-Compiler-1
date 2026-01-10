@@ -586,7 +586,7 @@ struct SimplifyMinSelf : public OpRewritePattern<MinOp> {
 //===----------------------------------------------------------------------===//
 
 void AddOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                        MLIRContext *context) {
+                                                    MLIRContext *context) {
   results.add<InsertBroadcastPattern<AddOp>>(context);
   results.add<EliminateAddZero>(context);
   results.add<CombineAddConstants>(context);
