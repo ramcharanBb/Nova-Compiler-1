@@ -68,4 +68,4 @@ module {
     return %cmp_eq, %cmp_gt, %cmp_le, %cmp_lt, %cmp_ge, %cmp_ne
       : tensor<4x8xi1, #nova.device<"1">>, tensor<4x8xi1, #nova.device<"1">>, tensor<4x8xi1, #nova.device<"1">>, tensor<4x8xi1, #nova.device<"1">>, tensor<4x8xi1, #nova.device<"1">>, tensor<4x8xi1, #nova.device<"1">>
   }
-} 
+}
