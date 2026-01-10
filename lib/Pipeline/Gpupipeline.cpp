@@ -162,7 +162,7 @@ namespace mlir
 
             // Binary generation (Stage 2)
             mlir::GpuModuleToBinaryPassOptions binaryOptions;
-            binaryOptions.toolkitPath = "/usr/local/cuda-12.9";
+            binaryOptions.toolkitPath = "/usr/local/cuda-13.0";
             pm.addPass(mlir::createGpuModuleToBinaryPass(binaryOptions));
 
             // MAIN LOWERING: gpu.launch_func -> runtime calls

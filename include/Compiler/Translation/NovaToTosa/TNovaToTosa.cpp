@@ -19,78 +19,123 @@
 namespace mlir {
 namespace nova {
 struct NovaOpTosaOp {
+  static Value castElementType(OpBuilder *builder, Location loc, Value val, Type targetElemTy) {
+    auto rankedTy = dyn_cast<RankedTensorType>(val.getType());
+    if (!rankedTy || rankedTy.getElementType() == targetElemTy) return val;
+    auto newTy = RankedTensorType::get(rankedTy.getShape(), targetElemTy, rankedTy.getEncoding());
+    return builder->create<tosa::CastOp>(loc, newTy, val);
+  }
+
+  static Value matchRank(OpBuilder *builder, Location loc, Value val, int64_t targetRank) {
+    auto rankedTy = cast<RankedTensorType>(val.getType());
+    int64_t currentRank = rankedTy.getRank();
+    if (currentRank == targetRank) return val;
+
+    SmallVector<int64_t> newShape;
+    for (int64_t i = 0; i < targetRank - currentRank; ++i) {
+      newShape.push_back(1);
+    }
+    for (int64_t dim : rankedTy.getShape()) {
+      newShape.push_back(dim);
+    }
+
+    auto newTy = RankedTensorType::get(newShape, rankedTy.getElementType(), rankedTy.getEncoding());
+    
+    // TOSA Reshape requires a shape constant
+    auto shapeType = RankedTensorType::get({targetRank}, builder->getIndexType());
+    auto shapeAttr = DenseIntElementsAttr::get(shapeType, newShape);
+    Value shapeConst = builder->create<tosa::ConstShapeOp>(
+        loc, tosa::shapeType::get(builder->getContext(), targetRank), shapeAttr);
+
+    return builder->create<tosa::ReshapeOp>(loc, newTy, val, shapeConst);
+  }
+
   static Value rmappingtosa(nova::AddOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-
-    return builder->create<tosa::AddOp>(op.getLoc(), resultType, input[0], input[1]);
+    auto restensor = cast<RankedTensorType>(resultType);
+    auto targetElemTy = restensor.getElementType();
+    int64_t targetRank = restensor.getRank();
+    auto v = castElementType(builder, op.getLoc(), input[0], targetElemTy);
+    auto w = castElementType(builder, op.getLoc(), input[1], targetElemTy);
+    v = matchRank(builder, op.getLoc(), v, targetRank);
+    w = matchRank(builder, op.getLoc(), w, targetRank);
+    return builder->create<tosa::AddOp>(op.getLoc(), resultType, v, w);
   }
 
   static Value rmappingtosa(nova::SubOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
-    return builder->create<tosa::SubOp>(op.getLoc(), resultType, input[0], input[1]);
+    auto restensor = cast<RankedTensorType>(resultType);
+    auto targetElemTy = restensor.getElementType();
+    int64_t targetRank = restensor.getRank();
+    auto v = castElementType(builder, op.getLoc(), input[0], targetElemTy);
+    auto w = castElementType(builder, op.getLoc(), input[1], targetElemTy);
+    v = matchRank(builder, op.getLoc(), v, targetRank);
+    w = matchRank(builder, op.getLoc(), w, targetRank);
+    return builder->create<tosa::SubOp>(op.getLoc(), resultType, v, w);
   }
   static Value rmappingtosa(nova::MulOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-
     auto restensor = cast<mlir::RankedTensorType>(resultType);
-    Value v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-    Value w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-    Value init = builder->create<tensor::EmptyOp>(
-        op.getLoc(), restensor.getShape(), restensor.getElementType(),
-        restensor.getEncoding());
-
-    return builder
-        ->create<linalg::MulOp>(op.getLoc(), resultType, ValueRange{v, w},
-                                ValueRange{init})
-        .getResult(0);
+    auto targetElemTy = restensor.getElementType();
+    int64_t targetRank = restensor.getRank();
+    auto v = castElementType(builder, op.getLoc(), input[0], targetElemTy);
+    auto w = castElementType(builder, op.getLoc(), input[1], targetElemTy);
+    v = matchRank(builder, op.getLoc(), v, targetRank);
+    w = matchRank(builder, op.getLoc(), w, targetRank);
+    
+    auto shift = builder->create<mlir::arith::ConstantOp>(
+        op.getLoc(),
+        DenseElementsAttr::get(RankedTensorType::get({1}, builder->getI8Type()),
+                               builder->getI8IntegerAttr(0)));
+    return builder->create<tosa::MulOp>(op.getLoc(), resultType, v, w, shift);
   }
   static Value rmappingtosa(nova::PowOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-
-    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
-    auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
-
+    auto restensor = cast<mlir::RankedTensorType>(resultType);
+    auto targetElemTy = restensor.getElementType();
+    int64_t targetRank = restensor.getRank();
+    auto v = castElementType(builder, op.getLoc(), input[0], targetElemTy);
+    auto w = castElementType(builder, op.getLoc(), input[1], targetElemTy);
+    v = matchRank(builder, op.getLoc(), v, targetRank);
+    w = matchRank(builder, op.getLoc(), w, targetRank);
     return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, w);
   }
   static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
+    auto restensor = cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+    auto v = castElementType(builder, op.getLoc(), input[0], elemType);
     // Create constant 0.5 tensor
     DenseElementsAttr halfAttr;
     if (elemType.isF32()) {
       halfAttr =
-          DenseElementsAttr::get(restensor, builder->getF32FloatAttr(0.5f));
+          DenseElementsAttr::get(RankedTensorType::get({}, elemType), builder->getF32FloatAttr(0.5f));
     } else {
       op.emitError("Sqrt lowering only supports floating-point tensors");
       return nullptr;
     }
 
     Value half =
-        builder->create<tosa::ConstOp>(op.getLoc(), restensor, halfAttr);
+        builder->create<tosa::ConstOp>(op.getLoc(), halfAttr.getType(), halfAttr);
     return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, half);
   }
 
   static Value rmappingtosa(nova::SquareOp op, Type resultType,
                             ValueRange input, OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
+    auto restensor = cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
-    auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
+    auto v = castElementType(builder, op.getLoc(), input[0], elemType);
     // Create constant 2.0 tensor
     DenseElementsAttr twoAttr;
     if (elemType.isF32()) {
       twoAttr =
-          DenseElementsAttr::get(restensor, builder->getF32FloatAttr(2.0f));
+          DenseElementsAttr::get(RankedTensorType::get({}, elemType), builder->getF32FloatAttr(2.0f));
     } else {
       op.emitError("Square lowering only supports floating-point tensors");
       return nullptr;
     }
 
-    Value two = builder->create<tosa::ConstOp>(op.getLoc(), restensor, twoAttr);
+    Value two = builder->create<tosa::ConstOp>(op.getLoc(), twoAttr.getType(), twoAttr);
     return builder->create<tosa::PowOp>(op.getLoc(), resultType, v, two);
   }
 
@@ -143,4 +188,4 @@ void populateNovaToTosaTemplatePatterns(mlir::RewritePatternSet &patterns) {
       patterns.getContext());
 }
 } // namespace nova
-} // namespace mlir
+} // namespace mli

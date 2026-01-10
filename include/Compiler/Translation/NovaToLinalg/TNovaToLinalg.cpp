@@ -1341,12 +1341,23 @@ namespace mlir
 
         // Prepare affine maps
         int64_t rank = resultType.getRank();
-        AffineMap scalarMap = AffineMap::get(rank, 0, rewriter.getContext());
-        AffineMap idMap = rewriter.getMultiDimIdentityMap(rank);
         SmallVector<AffineMap> maps;
-        for (Value v : operands)
-          maps.push_back(isScalar(v) ? scalarMap : idMap);
-        maps.push_back(idMap);
+        for (Value v : operands) {
+          auto vType = cast<RankedTensorType>(v.getType());
+          auto vShape = vType.getShape();
+          auto vRank = vType.getRank();
+          SmallVector<AffineExpr> exprs;
+          // Standard broadcasting: align right
+          for (int64_t i = 0; i < vRank; ++i) {
+            if (vShape[i] == 1) {
+              exprs.push_back(rewriter.getAffineConstantExpr(0));
+            } else {
+              exprs.push_back(rewriter.getAffineDimExpr(i + (rank - vRank)));
+            }
+          }
+          maps.push_back(AffineMap::get(rank, 0, exprs, rewriter.getContext()));
+        }
+        maps.push_back(rewriter.getMultiDimIdentityMap(rank));
 
         // Create Linalg generic
         auto linalgOp = rewriter.create<linalg::GenericOp>(

@@ -1087,8 +1087,19 @@ def Nova_AdamOp : Op<Nova_Dialect,"adam",[Pure, InferTypeOpInterface]>{
       ::llvm::SmallVectorImpl<::mlir::Type> &inferredReturnTypes);
   }];
 
+def Nova_GatherOp : Op<Nova_Dialect, "gather", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let summary = "Gather operation";
+  let arguments = (ins Nova_Tensor:$input, Nova_Tensor:$indices, I64Attr:$axis);
+  let results = (outs Nova_Tensor:$output);
+  let assemblyFormat = "$input `,` $indices attr-dict `:` type($input) `,` type($indices)";
 }
 
+def Nova_ScatterAddOp : Op<Nova_Dialect, "scatter_add", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
+  let summary = "ScatterAdd operation";
+  let arguments = (ins Nova_Tensor:$input, Nova_Tensor:$indices, Nova_Tensor:$src, I64Attr:$axis);
+  let results = (outs Nova_Tensor:$output);
+  let assemblyFormat = "$input `,` $indices `,` $src attr-dict `:` type($input) `,` type($indices) `,` type($src)";
+}
 
 /*
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {

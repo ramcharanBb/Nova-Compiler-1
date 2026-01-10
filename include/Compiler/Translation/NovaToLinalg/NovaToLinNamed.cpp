@@ -197,34 +197,6 @@ private:
 
     return linalgop.getResult(0);
   }
-    static Value mapOpImpl(nova::AbsOp op, Type resultType, ValueRange args,
-                         Value init, OpBuilder &builder) {
-    if(!isa<FloatType>(args[0].getType())){ 
-      op->emitOpError("Abs only accepts float or complex types for linalg::AbsOp");
-      return nullptr;
-    }
-    auto linalgop = builder.create<linalg::AbsOp>(
-        op.getLoc(), 
-        resultType,
-        ValueRange{args[0]},
-        ValueRange{init});
-
-    return linalgop.getResult(0);
-  }
-    static Value mapOpImpl(nova::NegOp op, Type resultType, ValueRange args,
-                         Value init, OpBuilder &builder) {
-    if(!isa<FloatType>(args[0].getType())){
-      op->emitOpError("Neg only accepts float types for linalg::NegFOp");
-      return nullptr;
-    }
-    auto linalgop = builder.create<linalg::NegFOp>(
-        op.getLoc(), 
-        resultType,
-        ValueRange{args[0]},
-        ValueRange{init});
-
-    return linalgop.getResult(0);
-  }
 static Value mapOpImpl(nova::Rndm2DOp op, Type resultType, ValueRange args,
                          Value init, OpBuilder &builder) {
 auto loc=op.getLoc();
@@ -272,154 +244,11 @@ public:
     return success();
   }
 };
-// //RANDOM lowering -Stablehlo reference
-// SmallVector<utils::IteratorType, 3> getParallelAndReductionIterators(
-//     unsigned nLoops, unsigned nReduction) {
-//   SmallVector<utils::IteratorType, 3> res(nLoops - nReduction,
-//                                           utils::IteratorType::parallel);
-//   res.append(nReduction, utils::IteratorType::reduction);
-//   return res;
-// }
-// Value getEmptySparseTensor(OpBuilder& b, Location loc, ShapedType type,
-//                            ArrayRef<Value> dynSizes) {
-//   return bufferization::AllocTensorOp::create(
-//       b, loc, llvm::cast<TensorType>(type), dynSizes,
-//       /*copy=*/Value(),
-//       /*memory_space=*/IntegerAttr());
-// }
-
-// Value getEmptyTensor(OpBuilder& b, Location loc, ShapedType type,
-//                      ArrayRef<Value> dynSizes) {
-//   return tensor::EmptyOp::create(
-//       b, loc, type.getShape(), type.getElementType(), dynSizes,
-//       llvm::cast<RankedTensorType>(type).getEncoding());
-// }
-// Value getEmptyTensorFor(OpBuilder& b, Location loc, ShapedType resultType,
-//                         Operation* op, ValueRange operands) {
-//   bool isSparse = sparse_tensor::getSparseTensorEncoding(resultType) != nullptr;
-//   // Collect the sizes for a ranked tensor to be passed as parameter to a
-//   // new tensor initialization operation. This operation only needs the
-//   // dynamic sizes.
-//   SmallVector<Value> sizes;
-//   if (!resultType.hasStaticShape()) {
-//     // Ask the op for its output shape.
-//     auto shapeSource = cast<InferShapedTypeOpInterface>(op);
-//     SmallVector<Value, 1> reifiedShapes;
-//     if (failed(shapeSource.reifyReturnTypeShapes(b, operands, reifiedShapes))) {
-//       llvm::report_fatal_error("could not reify");
-//     }
-//     assert(reifiedShapes.size() == 1 && "Expected one reified result");
-//     // Construct sizes for the required dimensions.
-//     for (const auto& en : llvm::enumerate(resultType.getShape())) {
-//       if (en.value() != ShapedType::kDynamic) continue;
-//       sizes.push_back(tensor::ExtractOp::create(
-//           b, loc, reifiedShapes[0],
-//           ValueRange{b.create<arith::ConstantIndexOp>(loc, en.index())}));
-//     }
-//   }
-//   return isSparse ? getEmptySparseTensor(b, loc, resultType, sizes)
-//                   : getEmptyTensor(b, loc, resultType, sizes);
-// }
-
-// /// Returns an attribute list that excludes pre-defined attributes.
-// template <typename OpTy>
-// SmallVector<NamedAttribute> getPrunedAttributeList(OpTy op) {
-//   auto elidedAttrs = llvm::to_vector(op.getAttributeNames());
-//   if (isa<linalg::LinalgOp>(op.getOperation()))
-//     elidedAttrs.push_back(linalg::LinalgDialect::kMemoizedIndexingMapsAttrName);
-//   return getPrunedAttributeList(op, elidedAttrs);
-// }
-// struct RngUniformConversion final
-//     : OpConversionPattern<mlir::nova::Rndm2DOp> {
-//   using OpConversionPattern::OpConversionPattern;
-
-//   LogicalResult matchAndRewrite(
-//       mlir::nova::Rndm2DOp op, OpAdaptor adaptor,
-//       ConversionPatternRewriter &rewriter) const override {
-//     // We only handle uniform distributions.
-    
-//     // TODO(raikonenfnu): Handle other element types as well.
-//     auto minTy = dyn_cast<ShapedType>(adaptor.getLhs() .getType());
-//     auto maxTy = dyn_cast<ShapedType>(adaptor.getRhs().getType());
-//     if (!isa<FloatType>(minTy.getElementType()) ||
-//         !isa<FloatType>(maxTy.getElementType())) {
-//       return rewriter.notifyMatchFailure(
-//           op, "expected min/max for rng op to be FloatType");
-//     }
-//     auto targetTy = dyn_cast_or_null<ShapedType>(
-//         getTypeConverter()->convertType(op.getType()));
-//     if (!targetTy) {
-//       return rewriter.notifyMatchFailure(
-//           op, "expected target shape of rng op to be ShapedType");
-//     }
-//     auto loc = op.getLoc();
-//     Value emptyTensor =
-//         getEmptyTensorFor(rewriter, loc, targetTy, op, adaptor.getOperands());
-//     // Creates index map using target matrix's rank.
-//     auto targetRank = targetTy.getRank();
-//     SmallVector<AffineMap, 3> indexingMaps(
-//         2, AffineMap::get(targetRank, /*symbolCount=*/0,
-//                           SmallVector<AffineExpr>({}), rewriter.getContext()));
-//     indexingMaps.push_back(rewriter.getMultiDimIdentityMap(targetRank));
-//     const int kInitialSeed = 0;
-
-//     // Generic region with LCG Algorithm that make use of element index from:
-//     // https://reviews.llvm.org/D101364
-//     auto linalgOp = rewriter.create<linalg::GenericOp>(
-//         loc, /*resultTensors=*/targetTy,
-//         /*inputs=*/
-//         ValueRange{adaptor.getOperands()[0], adaptor.getOperands()[1]},
-//         /*outputs=*/emptyTensor, indexingMaps,
-//         getParallelAndReductionIterators(/*nLoops=*/targetRank,
-//                                          /*nReduction=*/0),
-//         [&](OpBuilder &b, Location loc, ValueRange args) {
-//           llvm::SmallVector<Value> updateVec = {b.create<arith::ConstantOp>(
-//               loc, b.getI32IntegerAttr(kInitialSeed))};
-//           Value multiplier =
-//               b.create<arith::ConstantOp>(loc, b.getI32IntegerAttr(1103515245));
-//           Value incrementStep =
-//               b.create<arith::ConstantOp>(loc, b.getI32IntegerAttr(12345));
-//           // For output matrix with rank N:
-//           // temp1 = (cast(I32, index(D.0)) + seed) * mult + incr
-//           // ...
-//           // tempN = (cast(I32, index(D.(N))) + tempN_1) * mult + incr
-//           for (int i = 0; i < targetRank; i++) {
-//             Value update = updateVec.back();
-//             Value ind = b.create<linalg::IndexOp>(loc, i);
-//             Value castInd =
-//                 b.create<arith::IndexCastOp>(loc, b.getI32Type(), ind);
-//             Value addRes = b.create<arith::AddIOp>(loc, castInd, update);
-//             Value multRes = b.create<arith::MulIOp>(loc, addRes, multiplier);
-//             Value incRes = b.create<arith::AddIOp>(loc, multRes, incrementStep);
-//             updateVec.push_back(incRes);
-//           }
-//           // Scaling = (max - min) * const(F64, 2.3283064E-10)
-//           // which is derived from rand(min,max) = rand()/(RAND_MAX/(max-min)).
-//           Value epsilon = b.create<arith::ConstantOp>(
-//               loc, b.getFloatAttr(args[0].getType(), 2.3283064E-10));
-//           Value range = b.create<arith::SubFOp>(loc, args[1], args[0]);
-//           Value scale = b.create<arith::MulFOp>(loc, range, epsilon);
-//           // Res = cast(T, cast(F64, tempN) * scaling + min)
-//           Value updateCast = b.create<arith::UIToFPOp>(
-//               loc, targetTy.getElementType(), updateVec.back());
-//           Value scaleUpdate = b.create<arith::MulFOp>(loc, updateCast, scale);
-//           Value res = b.create<arith::AddFOp>(loc, scaleUpdate, args[0]);
-//           b.create<linalg::YieldOp>(loc, res);
-//         },
-//         getPrunedAttributeList(op));
-//     rewriter.replaceOp(op, linalgOp.getResults());
-//     return success();
-//   }
-// };
 void populateNovaToLinalgNamedPatterns(RewritePatternSet &patterns) {
   patterns.add<
-           //NovaToLinalgNamedopsConverter<nova::AddOp>,
-          //  NovaToLinalgNamedopsConverter<nova::SubOp>,
             NovaToLinalgNamedopsConverter<nova::MulOp>,
              NovaToLinalgNamedopsConverter<nova::DivOp>,
             NovaToLinalgNamedopsConverter<nova::SqrtOp>,
-            NovaToLinalgNamedopsConverter<nova::NegOp>,
-            NovaToLinalgNamedopsConverter<nova::AbsOp>,
              NovaToLinalgNamedopsConverter<nova::ExpOp>,
              NovaToLinalgNamedopsConverter<nova::LogOp>,
              NovaToLinalgNamedopsConverter<nova::TanhOp>,
@@ -429,7 +258,6 @@ void populateNovaToLinalgNamedPatterns(RewritePatternSet &patterns) {
              NovaToLinalgNamedopsConverter<nova::ReciprocalOp>,
             NovaToLinalgNamedopsConverter<nova::SquareOp>,
             NovaToLinalgNamedopsConverter<nova::Rndm2DOp>
-           // RngUniformConversion
 
   >(patterns.getContext());
 }

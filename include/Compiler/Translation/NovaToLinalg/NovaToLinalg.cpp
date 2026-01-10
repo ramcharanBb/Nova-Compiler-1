@@ -173,6 +173,97 @@ struct NovaMatmulOpLoweringgeneric
     return success();
   }
 };
+struct NovaGatherOpLowering : public OpConversionPattern<nova::GatherOp> {
+  using OpConversionPattern<nova::GatherOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(nova::GatherOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = cast<RankedTensorType>(op.getType());
+    auto loc = op.getLoc();
+    Value input = adaptor.getInput();
+    Value indices = adaptor.getIndices();
+
+    // Create empty output tensor
+    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
+        loc, resultType.getShape(), resultType.getElementType(),
+        resultType.getEncoding());
+
+    auto indexMap = rewriter.getMultiDimIdentityMap(resultType.getRank());
+    SmallVector<AffineMap> indexingMaps = {indexMap, indexMap};
+    SmallVector<utils::IteratorType> iteratorTypes(
+        resultType.getRank(), utils::IteratorType::parallel);
+
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, indices, emptyTensor, indexingMaps,
+        iteratorTypes, [&](OpBuilder &b, Location l, ValueRange args) {
+          // args[0] is the index value
+          Value batchIdx = b.create<linalg::IndexOp>(l, 0);
+          Value classIdx =
+              b.create<arith::IndexCastOp>(l, b.getIndexType(), args[0]);
+          Value extracted =
+              b.create<tensor::ExtractOp>(l, input, ValueRange{batchIdx, classIdx});
+          b.create<linalg::YieldOp>(l, extracted);
+        });
+
+    rewriter.replaceOp(op, genericOp.getResults());
+    return success();
+  }
+};
+
+struct NovaScatterAddOpLowering : public OpConversionPattern<nova::ScatterAddOp> {
+  using OpConversionPattern<nova::ScatterAddOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(nova::ScatterAddOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto resultType = cast<RankedTensorType>(op.getType());
+    auto loc = op.getLoc();
+    Value input = adaptor.getInput(); // self
+    Value indices = adaptor.getIndices();
+    Value src = adaptor.getSrc();
+
+    auto ctx = rewriter.getContext();
+    auto i = rewriter.getAffineDimExpr(0);
+    auto j = rewriter.getAffineDimExpr(1);
+
+    auto mapIndices = AffineMap::get(2, 0, {i}, ctx);
+    auto mapSrc = AffineMap::get(2, 0, {i}, ctx);
+    auto mapInput = AffineMap::get(2, 0, {i, j}, ctx);
+    auto mapResult = AffineMap::get(2, 0, {i, j}, ctx);
+
+    SmallVector<AffineMap> indexingMaps = {mapIndices, mapSrc, mapInput,
+                                           mapResult};
+    SmallVector<utils::IteratorType> iteratorTypes = {
+        utils::IteratorType::parallel, utils::IteratorType::parallel};
+
+    auto genericOp = rewriter.create<linalg::GenericOp>(
+        loc, TypeRange{resultType}, ValueRange{indices, src, input}, input,
+        indexingMaps, iteratorTypes,
+        [&](OpBuilder &b, Location l, ValueRange args) {
+          // args[0] is index[i]
+          // args[1] is src[i]
+          // args[2] is input[i, j]
+
+          Value classIdx = b.create<linalg::IndexOp>(l, 1);
+          Value targetClassIdx =
+              b.create<arith::IndexCastOp>(l, b.getIndexType(), args[0]);
+          Value isTarget = b.create<arith::CmpIOp>(
+              l, arith::CmpIPredicate::eq, classIdx, targetClassIdx);
+
+          Value zero = b.create<arith::ConstantOp>(
+              l, b.getZeroAttr(resultType.getElementType()));
+          Value toAdd = b.create<arith::SelectOp>(l, isTarget, args[1], zero);
+
+          Value res = b.create<arith::AddFOp>(l, args[2], toAdd);
+          b.create<linalg::YieldOp>(l, res);
+        });
+
+    rewriter.replaceOp(op, genericOp.getResults());
+    return success();
+  }
+};
+
 struct NovaTransposeOpLowering : public OpConversionPattern<nova::TransposeOp> {
   using OpConversionPattern<nova::TransposeOp>::OpConversionPattern;
 
@@ -261,7 +352,8 @@ struct NovaToDeviceOpLowering : public OpConversionPattern<nova::ToDeviceOp> {
 
 void populateNovaToLinalgPatterns(RewritePatternSet &patterns) {
   patterns.add<NovaMatmulOpLoweringgeneric, NovaBroadcastInDimOpLowering,
-               NovaTransposeOpLowering, NovaToDeviceOpLowering
+               NovaTransposeOpLowering, NovaToDeviceOpLowering,
+               NovaScatterAddOpLowering,NovaGatherOpLowering
                //  NovaDivopLowering
                //    ,NovaSquareOpLowering
                >(patterns.getContext());

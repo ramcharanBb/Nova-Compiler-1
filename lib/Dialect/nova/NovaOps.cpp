@@ -1709,6 +1709,31 @@ BceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
   inferredReturnTypes.push_back(outType);
   return success();
 }
+LogicalResult GatherOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  auto indexType = llvm::dyn_cast<RankedTensorType>(operands[1].getType());
+  if (!inputType || !indexType)
+    return failure();
+
+  inferredReturnTypes.push_back(RankedTensorType::get(
+      indexType.getShape(), inputType.getElementType(), inputType.getEncoding()));
+  return success();
+}
+
+LogicalResult ScatterAddOp::inferReturnTypes(
+    MLIRContext *context, std::optional<Location> loc, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+  auto inputType = llvm::dyn_cast<RankedTensorType>(operands[0].getType());
+  if (!inputType)
+    return failure();
+
+  inferredReturnTypes.push_back(inputType);
+  return success();
+}
 
 LogicalResult AdamOp::inferReturnTypes(
   MLIRContext *context, std::optional<Location> loc,

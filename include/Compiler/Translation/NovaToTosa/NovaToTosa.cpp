@@ -562,16 +562,16 @@ struct NovaOpTosaOp {
     auto log = builder->create<nova::LogOp>(op.getLoc(), cp1);
     auto term1 = builder->create<nova::MulOp>(op.getLoc(), log, w);
 
-    // step8:find term2=(ones-arg1)*log(ones-clipped predicts)
+    // step6:find term2=(ones-arg1)*log(ones-clipped predicts)
     // ones-arg1
     auto termonelhs = builder->create<nova::SubOp>(op.getLoc(), ones, w);
     auto termtworhs = builder->create<nova::SubOp>(op.getLoc(), ones, cp1);
     auto termtwologrhs = builder->create<nova::LogOp>(op.getLoc(), termtworhs);
     auto term2 =
         builder->create<nova::MulOp>(op.getLoc(), termonelhs, termtwologrhs);
-    // step9 :find sum terms +term1+term2
+    // step7 :find sum terms +term1+term2
     auto sumterms = builder->create<nova::AddOp>(op.getLoc(), term1, term2);
-    // step 10 :reducemean(sum result) full reduction
+    // step 8 :reducemean(sum result) full reduction
     auto inputTensorType = cast<mlir::RankedTensorType>(term1.getType());
     int64_t inputRank = inputTensorType.getRank();
     llvm::SmallVector<int64_t, 4> dimensions;
@@ -583,7 +583,7 @@ struct NovaOpTosaOp {
     auto reducemeanres = builder->create<nova::ReduceOp>(
         op.getLoc(), rk, sumterms, resultType, false, dimensions);
 
-    // step11:create -1 constant tensor (scalar)
+    // step9:create -1 constant tensor (scalar)
     auto constType =
         mlir::RankedTensorType::get({}, targetElemType, v_type.getEncoding());
     auto minus1Attr =
@@ -658,40 +658,8 @@ struct NovaOpTosaOp {
 
     // Step 7: Gather using linalg.generic since TOSA gather has shape
     // constraints selected_log_probs[i] = log_sm_Z[i, targets[i]]
-    auto logSmShape = logitsType.getShape();
-    int64_t batchSize = logSmShape[0];
-
-    SmallVector<int64_t> selectedShape = {batchSize};
-    auto selectedType = mlir::RankedTensorType::get(
-        selectedShape, builder->getF32Type(), logitsType.getEncoding());
-
-    Value selectedEmpty =
-        builder
-            ->create<tensor::EmptyOp>(
-                op.getLoc(), selectedShape, builder->getF32Type(),
-                SmallVector<Value>{}, logitsType.getEncoding())
-            .getResult();
-
-    // Use linalg.generic to perform the gather operation
-    auto gatherInputMap = AffineMap::get(1, 0, {builder->getAffineDimExpr(0)},
-                                         builder->getContext());
-    auto gatherOutMap = gatherInputMap;
-
-    auto gatherOp = builder->create<linalg::GenericOp>(
-        op.getLoc(), selectedType, targets, selectedEmpty,
-        ArrayRef<AffineMap>{gatherInputMap, gatherOutMap},
-        SmallVector<utils::IteratorType>(1, utils::IteratorType::parallel),
-        [&](OpBuilder &b, Location l, ValueRange args) {
-          // args[0] is the target class index (integer)
-          // Extract log_sm_Z[batch_idx, args[0]]
-          Value batchIdx = b.create<linalg::IndexOp>(l, 0);
-          Value classIdx =
-              b.create<arith::IndexCastOp>(l, b.getIndexType(), args[0]);
-          Value extracted = b.create<tensor::ExtractOp>(
-              l, logSmZ, ValueRange{batchIdx, classIdx});
-          b.create<linalg::YieldOp>(l, extracted);
-        });
-    Value selectedLogProbs = gatherOp.getResult(0);
+    Value selectedLogProbs = builder->create<nova::GatherOp>(
+        op.getLoc(), logSmZ, targets, 1).getResult();
 
     // Step 8: loss = reduce_mean(selected_log_probs * -1.0)
     // Create -1.0 constant
