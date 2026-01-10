@@ -49,7 +49,7 @@ struct NovaOpTosaOp {
   static Value rmappingtosa(nova::PowOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
 
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -57,7 +57,7 @@ struct NovaOpTosaOp {
   }
   static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     // Create constant 0.5 tensor
@@ -77,7 +77,7 @@ struct NovaOpTosaOp {
 
   static Value rmappingtosa(nova::SquareOp op, Type resultType,
                             ValueRange input, OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     // Create constant 2.0 tensor

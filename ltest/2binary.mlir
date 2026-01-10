@@ -17,7 +17,7 @@ module {
     %max = nova.max %pow, %arg1 : tensor<4x8xf32, #nova.device<"1">>, tensor<4x8xf32, #nova.device<"1">>
     %min = nova.min %max, %arg1 : tensor<4x8xf32, #nova.device<"1">>, tensor<4x8xf32, #nova.device<"1">>
     
-    return %min : tensor<4x8xf32, #nova.device<"1">>
+    return %add : tensor<4x8xf32, #nova.device<"1">>
   }
 
   // Function 2: Binary Boolean Operations

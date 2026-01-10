@@ -1710,6 +1710,30 @@ BceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
   return success();
 }
 
+LogicalResult AdamOp::inferReturnTypes(
+  MLIRContext *context, std::optional<Location> loc,
+                        ValueRange operands, DictionaryAttr attributes,
+                        OpaqueProperties properties, RegionRange regions,
+                        llvm::SmallVectorImpl<Type> &inferredReturnTypes
+){
+  //get inputs 
+  auto paramType =cast<RankedTensorType>(operands[0].getType());
+  auto mType= cast<RankedTensorType>(operands[1].getType());
+  auto vType= cast<RankedTensorType>(operands[2].getType());
+  auto gradType= cast<RankedTensorType>(operands[3].getType());
+
+  //verification
+
+  if(paramType.getShape() != mType.getShape() || 
+      paramType.getShape() != vType.getShape() || 
+      paramType.getShape() != gradType.getShape()){
+        return emitOptionalError(loc,"All inputs (param,m,v,grad) must have the same shape");
+      }
+
+  inferredReturnTypes.assign({paramType,mType,vType});
+  return success();
+}
+
 OpFoldResult ToDeviceOp::fold(FoldAdaptor adaptor) {
   auto inputType = cast<RankedTensorType>(getInput().getType());
   auto resultType = cast<RankedTensorType>(getResult().getType());
@@ -1725,6 +1749,7 @@ OpFoldResult ToDeviceOp::fold(FoldAdaptor adaptor) {
 
   return {};
 }
+
 
 LogicalResult ToDeviceOp::verify() {
   auto inputType = cast<RankedTensorType>(getInput().getType());
