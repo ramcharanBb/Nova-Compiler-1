@@ -66,7 +66,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::MaxOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
 
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -75,21 +75,21 @@ struct NovaOpTosaOp {
 
   static Value mappingtosa(nova::MinOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
     return builder->create<tosa::MinimumOp>(op.getLoc(), resultType, v, w);
   }
   static Value mappingtosa(nova::AndOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
     return builder->create<tosa::LogicalAndOp>(op.getLoc(), resultType, v, w);
   }
   static Value mappingtosa(nova::OrOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -100,7 +100,7 @@ struct NovaOpTosaOp {
                            OpBuilder *builder) {
     // if complex type use complex.exp
 
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.exp element-wise
       auto loc = op.getLoc();
@@ -127,7 +127,7 @@ struct NovaOpTosaOp {
       return genericOp.getResult(0);
     }
     // cast operation to result data type
-    auto restensor = dyn_cast<TensorType>(resultType);
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
 
     return builder->create<tosa::LogOp>(op.getLoc(), resultType, v);
@@ -137,7 +137,7 @@ struct NovaOpTosaOp {
                            OpBuilder *builder) {
     // if complex type use complex.exp
 
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.exp element-wise
       auto loc = op.getLoc();
@@ -164,7 +164,7 @@ struct NovaOpTosaOp {
       return genericOp.getResult(0);
     }
     // cast operation to result data type
-    auto restensor = dyn_cast<TensorType>(resultType);
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
 
     return builder->create<tosa::ExpOp>(op.getLoc(), resultType, v);
@@ -173,7 +173,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::AbsOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     // if complex type use complex.abs
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.abs element-wise
       auto loc = op.getLoc();
@@ -203,7 +203,7 @@ struct NovaOpTosaOp {
   }
   static Value mappingtosa(nova::XorOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -211,7 +211,7 @@ struct NovaOpTosaOp {
   }
   static Value mappingtosa(nova::NegOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<IntegerType>(tensorTy.getElementType()) ||
         isa<FloatType>(tensorTy.getElementType())) {
       return builder->create<tosa::NegateOp>(op.getLoc(), resultType, input[0]);
@@ -251,7 +251,7 @@ struct NovaOpTosaOp {
                            OpBuilder *builder) {
     // if complex type use complex.exp
 
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.exp element-wise
       auto loc = op.getLoc();
@@ -278,7 +278,7 @@ struct NovaOpTosaOp {
       return genericOp.getResult(0);
     }
     // cast operation to result data type
-    auto restensor = dyn_cast<TensorType>(resultType);
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
 
     return builder->create<tosa::SinOp>(op.getLoc(), resultType, v);
@@ -319,7 +319,7 @@ struct NovaOpTosaOp {
                            OpBuilder *builder) {
     // if complex type use complex.exp
 
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.exp element-wise
       auto loc = op.getLoc();
@@ -346,7 +346,7 @@ struct NovaOpTosaOp {
       return genericOp.getResult(0);
     }
     // cast operation to result data type
-    auto restensor = dyn_cast<TensorType>(resultType);
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
 
     return builder->create<tosa::CosOp>(op.getLoc(), resultType, v);
@@ -355,7 +355,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::TanhOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     // if complex type use complex.exp
-    auto tensorTy = llvm::dyn_cast<TensorType>(input[0].getType());
+    auto tensorTy = llvm::dyn_cast<RankedTensorType>(input[0].getType());
     if (isa<ComplexType>(tensorTy.getElementType())) {
       // Need to use linalg.generic to apply complex.exp element-wise
       auto loc = op.getLoc();
@@ -382,7 +382,7 @@ struct NovaOpTosaOp {
       return genericOp.getResult(0);
     }
     // cast operation to result data type
-    auto restensor = dyn_cast<TensorType>(resultType);
+    auto restensor = dyn_cast<RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
 
     return builder->create<tosa::TanhOp>(op.getLoc(), resultType, v);
@@ -394,7 +394,7 @@ struct NovaOpTosaOp {
   }
   static Value mappingtosa(nova::NotOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restype = dyn_cast<mlir::TensorType>(resultType);
+    auto restype = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restype, input[0]);
     return builder->create<tosa::LogicalNotOp>(op.getLoc(), resultType, v);
   }
@@ -406,7 +406,7 @@ struct NovaOpTosaOp {
   // MAE lowering pattern
   static Value mappingtosa(nova::MaeOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto targetElemType = restensor.getElementType();
     auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
     auto newVType = mlir::RankedTensorType::get(
@@ -435,7 +435,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::MseOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     // loss= reduce_mean(square(arg0-arg1))
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto targetElemType = restensor.getElementType();
     auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
     auto newVType = mlir::RankedTensorType::get(
@@ -472,7 +472,7 @@ struct NovaOpTosaOp {
   static Value mappingtosa(nova::CceOp op, Type resultType, ValueRange input,
                            OpBuilder *builder) {
     // basic casting logic
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto targetElemType = restensor.getElementType();
     auto v_type = cast<mlir::RankedTensorType>(input[0].getType());
     auto newVType = mlir::RankedTensorType::get(

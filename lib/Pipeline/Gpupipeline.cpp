@@ -83,17 +83,17 @@ namespace mlir
             pm.addNestedPass<mlir::func::FuncOp>(
                 mlir::nova::createNovaToLinalgLoweringPass());
 
-  // 2. TOSA TO LINALG (Named and regular)
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalgNamed());
-  pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalg());
-  // This enables the 2:4 structured sparsity hardware path on your RTX 3060.
-  // pm.addPass(mlir::createSparsificationPass());
-  // pm.addPass(mlir::createSparseTensorConversionPass());
+            // 2. TOSA TO LINALG (Named and regular)
+            pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalgNamed());
+            pm.addNestedPass<mlir::func::FuncOp>(mlir::tosa::createTosaToLinalg());
+            // This enables the 2:4 structured sparsity hardware path on your RTX 3060.
+            // pm.addPass(mlir::createSparsificationPass());
+            // pm.addPass(mlir::createSparseTensorConversionPass());
 
-  // 3. TOSA TO ARITH/TENSOR/SCF
-  pm.addPass(mlir::createTosaToArithPass());
-  pm.addPass(mlir::createTosaToTensorPass());
-  pm.addPass(mlir::createTosaToSCFPass());
+            // 3. TOSA TO ARITH/TENSOR/SCF
+            pm.addPass(mlir::createTosaToArithPass());
+            pm.addPass(mlir::createTosaToTensorPass());
+            pm.addPass(mlir::createTosaToSCFPass());
 
             // 4. NOVA TRANSFORMS & LINALG OPT
             pm.addNestedPass<mlir::func::FuncOp>(mlir::nova::createFuseMatmulBiasPass());
@@ -167,7 +167,7 @@ namespace mlir
 
             // MAIN LOWERING: gpu.launch_func -> runtime calls
             mlir::GpuToLLVMConversionPassOptions hostOptions;
-            pm.addPass(mlir::createGpuToLLVMConversionPass(hostOptions));            
+            pm.addPass(mlir::createGpuToLLVMConversionPass(hostOptions));
             pm.addPass(mlir::createCanonicalizerPass());
             pm.addPass(mlir::createCSEPass());
             pm.addPass(mlir::createSCFToControlFlowPass());

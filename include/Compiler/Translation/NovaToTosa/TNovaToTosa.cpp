@@ -21,39 +21,13 @@ namespace nova {
 struct NovaOpTosaOp {
   static Value rmappingtosa(nova::AddOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-    auto loc = op.getLoc();
-    auto resultTensorType = llvm::cast<RankedTensorType>(resultType);
-
-    // Create empty tensor with correct encoding
-    Value emptyTensor = builder->create<tensor::EmptyOp>(
-        loc, resultTensorType.getShape(), resultTensorType.getElementType(),
-        resultTensorType.getEncoding());
-
-    auto identityMap =
-        builder->getMultiDimIdentityMap(resultTensorType.getRank());
-    SmallVector<AffineMap> indexingMaps = {identityMap, identityMap,
-                                           identityMap};
-    SmallVector<utils::IteratorType> iteratorTypes(
-        resultTensorType.getRank(), utils::IteratorType::parallel);
-
-    auto genericOp = builder->create<linalg::GenericOp>(
-        loc, TypeRange{resultType}, input, emptyTensor, indexingMaps,
-        iteratorTypes, [&](OpBuilder &b, Location loc, ValueRange args) {
-          Value res;
-          if (llvm::isa<FloatType>(args[0].getType()))
-            res = b.create<arith::AddFOp>(loc, args[0], args[1]);
-          else
-            res = b.create<arith::AddIOp>(loc, args[0], args[1]);
-          b.create<linalg::YieldOp>(loc, res);
-        });
-
-    return genericOp.getResult(0);
+    return builder->create<tosa::AddOp>(op.getLoc(), resultType, input[0], input[1]);
   }
 
   static Value rmappingtosa(nova::SubOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
 
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -77,7 +51,7 @@ struct NovaOpTosaOp {
   static Value rmappingtosa(nova::PowOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
 
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     auto w = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[1]);
 
@@ -85,7 +59,7 @@ struct NovaOpTosaOp {
   }
   static Value rmappingtosa(nova::SqrtOp op, Type resultType, ValueRange input,
                             OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     // Create constant 0.5 tensor
@@ -105,7 +79,7 @@ struct NovaOpTosaOp {
 
   static Value rmappingtosa(nova::SquareOp op, Type resultType,
                             ValueRange input, OpBuilder *builder) {
-    auto restensor = dyn_cast<mlir::TensorType>(resultType);
+    auto restensor = dyn_cast<mlir::RankedTensorType>(resultType);
     auto elemType = restensor.getElementType();
     auto v = builder->create<tosa::CastOp>(op.getLoc(), restensor, input[0]);
     // Create constant 2.0 tensor

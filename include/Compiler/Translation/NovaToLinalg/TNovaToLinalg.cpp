@@ -1221,9 +1221,97 @@ namespace mlir
 
       }
     };
+    
+    struct AdamOpConverter : public OpConversionPattern<nova::AdamOp> {
+      using OpConversionPattern<nova::AdamOp>::OpConversionPattern;
 
+      LogicalResult matchAndRewrite(nova::AdamOp op, OpAdaptor adaptor,
+                                    ConversionPatternRewriter &rewriter) const override {
+        Location loc = op.getLoc();
+        
+        Value param = adaptor.getParam();
+        Value m = adaptor.getM();
+        Value v = adaptor.getV();
+        Value grad = adaptor.getGrad();
+        
+        // Load hyperparameters
+        double beta1 = op.getBeta1().convertToDouble();
+        double beta2 = op.getBeta2().convertToDouble();
+        double epsilon = op.getEpsilon().convertToDouble();
+        double lr = op.getLr().convertToDouble();
+        int64_t t = op.getT();
 
-    // generic pattern definition
+        // Team Logic: Compute alpha_eff and bias corrections
+        // Note: t is assumed to be the already-incremented step count (1, 2, ...)
+        double bias_corr1 = 1.0 - std::pow(beta1, t);
+        double bias_corr2 = 1.0 - std::pow(beta2, t);
+        
+        // alpha_eff = alpha * sqrt(bias_corr2) / bias_corr1
+        double alpha_eff = lr * std::sqrt(bias_corr2) / bias_corr1;
+        double sqrt_bias_corr2 = std::sqrt(bias_corr2);
+
+        auto resultType = cast<RankedTensorType>(op.getResult(0).getType());
+        auto elementType = resultType.getElementType();
+
+        // Create separate empty tensors for results
+        Value empty_param = rewriter.create<tensor::EmptyOp>(
+            loc, resultType.getShape(), elementType, resultType.getEncoding());
+        Value empty_m = rewriter.create<tensor::EmptyOp>(
+            loc, resultType.getShape(), elementType, resultType.getEncoding());
+        Value empty_v = rewriter.create<tensor::EmptyOp>(
+            loc, resultType.getShape(), elementType, resultType.getEncoding());
+
+        auto genericOp = rewriter.create<linalg::GenericOp>(
+            loc, 
+            TypeRange{resultType, resultType, resultType}, 
+            ValueRange{param, m, v, grad},                 
+            ValueRange{empty_param, empty_m, empty_v},               
+            SmallVector<AffineMap>(7, rewriter.getMultiDimIdentityMap(resultType.getRank())),
+            SmallVector<utils::IteratorType>(resultType.getRank(), utils::IteratorType::parallel),
+            [&](OpBuilder &b, Location loc, ValueRange args) {
+              Value current_p = args[0];
+              Value current_m = args[1];
+              Value current_v = args[2];
+              Value current_g = args[3];
+
+              // Constants based on team implementation
+              Value c_beta1 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, beta1));
+              Value c_beta2 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, beta2));
+              Value c_one_minus_beta1 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 1.0 - beta1));
+              Value c_one_minus_beta2 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, 1.0 - beta2));
+              Value c_alpha_eff = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, alpha_eff));
+              Value c_epsilon = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, epsilon));
+              Value c_sqrt_bias_corr2 = b.create<arith::ConstantOp>(loc, b.getFloatAttr(elementType, sqrt_bias_corr2));
+
+              // 1. Update first moment: m = beta1*m + (1-beta1)*grad
+              Value m_term1 = b.create<arith::MulFOp>(loc, current_m, c_beta1);
+              Value m_term2 = b.create<arith::MulFOp>(loc, current_g, c_one_minus_beta1);
+              Value m_new = b.create<arith::AddFOp>(loc, m_term1, m_term2);
+
+              // 2. Update second moment: v = beta2*v + (1-beta2)*grad^2
+              Value g_sq = b.create<arith::MulFOp>(loc, current_g, current_g);
+              Value v_term1 = b.create<arith::MulFOp>(loc, current_v, c_beta2);
+              Value v_term2 = b.create<arith::MulFOp>(loc, g_sq, c_one_minus_beta2);
+              Value v_new = b.create<arith::AddFOp>(loc, v_term1, v_term2);
+
+              // 3. Update parameter: param -= alpha_eff * m / (sqrt(v) + epsilon * sqrt(bias_corr2))
+              Value sqrt_v = b.create<math::SqrtOp>(loc, v_new);
+              Value eps_term = b.create<arith::MulFOp>(loc, c_epsilon, c_sqrt_bias_corr2);
+              Value denom = b.create<arith::AddFOp>(loc, sqrt_v, eps_term);
+              
+              Value num = b.create<arith::MulFOp>(loc, c_alpha_eff, m_new);
+              Value update = b.create<arith::DivFOp>(loc, num, denom);
+              
+              Value p_new = b.create<arith::SubFOp>(loc, current_p, update);
+
+              b.create<linalg::YieldOp>(loc, ValueRange{p_new, m_new, v_new});
+            }
+        );
+
+        rewriter.replaceOp(op, genericOp.getResults());
+        return success();
+      }
+    };
 
     template <typename NovaOpTy>
     class NovaToLinalgElementwiseConverter : public OpConversionPattern<NovaOpTy>
@@ -1317,6 +1405,7 @@ namespace mlir
         target.addLegalDialect<func::FuncDialect>();
         target.addLegalDialect<math::MathDialect>();
         target.addIllegalOp<nova::AcosOp>();
+        target.addIllegalOp<nova::AdamOp>();
         target.addIllegalOp<nova::AcoshOp>();
         target.addIllegalOp<nova::AddOp>();
         target.addIllegalOp<nova::AsinOp>();
@@ -1423,7 +1512,10 @@ namespace mlir
           NovaToLinalgElementwiseConverter<nova::SignOp>,
           ArgMinConverter,
           ArgMaxConverter,
-          ReduceOpConverter
+          ArgMinConverter,
+          ArgMaxConverter,
+          ReduceOpConverter,
+          AdamOpConverter
         >(patterns.getContext());
     }
 
