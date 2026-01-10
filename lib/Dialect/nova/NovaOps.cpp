@@ -1030,29 +1030,38 @@ LogicalResult TransposeOp::inferReturnTypes(
     DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
     llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
   // getting dimensions
-  auto axes1 = attributes.get("axes1")
-                   ? dyn_cast<IntegerAttr>(attributes.get("axes1"))
-                         .getValue()
-                         .getSExtValue()
-                   : -1;
-  auto axes2 = attributes.get("axes2")
-                   ? dyn_cast<IntegerAttr>(attributes.get("axes2"))
-                         .getValue()
-                         .getSExtValue()
-                   : -2;
-  // handling negative indexing
   auto inputType = dyn_cast<RankedTensorType>(operands[0].getType());
   auto shape = inputType.getShape();
   int64_t size = shape.size();
   if (size < 1) {
     mlir::emitError(*loc) << "transpose only accepts above rank 1";
   }
-  if (axes1 < 0) {
+  // giving default indexing
+  auto axes1 = attributes.get("axes1")
+                   ? dyn_cast<IntegerAttr>(attributes.get("axes1"))
+                         .getValue()
+                         .getSExtValue()
+                   : size - 1;
+  auto axes2 = attributes.get("axes2")
+                   ? dyn_cast<IntegerAttr>(attributes.get("axes2"))
+                         .getValue()
+                         .getSExtValue()
+                   : size - 2;
+
+  // Handle negative indices
+  if (axes1 < 0)
     axes1 += size;
-  }
-  if (axes2 < 0) {
+  if (axes2 < 0)
     axes2 += size;
+
+  // Validate indices
+  if (axes1 < 0 || axes1 >= size || axes2 < 0 || axes2 >= size) {
+    if (loc) {
+      mlir::emitError(*loc) << "transpose axes out of bounds";
+    }
+    return failure();
   }
+
   llvm::SmallVector<int64_t> resshape;
   for (int64_t i = 0; i < size; i++) {
     if (i == axes1) {
@@ -1775,62 +1784,3 @@ struct SimplifyRedundantToDevice : public OpRewritePattern<ToDeviceOp> {
     return failure();
   }
 };
-#define DEFINE_EMPTY_CANONICALIZER(OpTy)                                       \
-  void OpTy::getCanonicalizationPatterns(RewritePatternSet &results,           \
-                                         MLIRContext *context) {}
-
-// Unary Ops
-DEFINE_EMPTY_CANONICALIZER(ConstantOp)
-DEFINE_EMPTY_CANONICALIZER(AbsOp)
-DEFINE_EMPTY_CANONICALIZER(AcosOp)
-DEFINE_EMPTY_CANONICALIZER(AsinOp)
-DEFINE_EMPTY_CANONICALIZER(AtanOp)
-DEFINE_EMPTY_CANONICALIZER(CosOp)
-DEFINE_EMPTY_CANONICALIZER(ExpOp)
-DEFINE_EMPTY_CANONICALIZER(Exp2Op)
-DEFINE_EMPTY_CANONICALIZER(LogOp)
-DEFINE_EMPTY_CANONICALIZER(Log2Op)
-DEFINE_EMPTY_CANONICALIZER(Log10Op)
-DEFINE_EMPTY_CANONICALIZER(NegOp)
-DEFINE_EMPTY_CANONICALIZER(SignOp)
-DEFINE_EMPTY_CANONICALIZER(SinOp)
-DEFINE_EMPTY_CANONICALIZER(SinhOp)
-DEFINE_EMPTY_CANONICALIZER(SqrtOp)
-DEFINE_EMPTY_CANONICALIZER(SquareOp)
-DEFINE_EMPTY_CANONICALIZER(TanOp)
-DEFINE_EMPTY_CANONICALIZER(TanhOp)
-DEFINE_EMPTY_CANONICALIZER(ReluOp)
-DEFINE_EMPTY_CANONICALIZER(ReciprocalOp)
-DEFINE_EMPTY_CANONICALIZER(AsinhOp)
-DEFINE_EMPTY_CANONICALIZER(AcoshOp)
-DEFINE_EMPTY_CANONICALIZER(AtanhOp)
-DEFINE_EMPTY_CANONICALIZER(CoshOp)
-DEFINE_EMPTY_CANONICALIZER(NotOp)
-
-// Binary Ops
-DEFINE_EMPTY_CANONICALIZER(AddOp)
-DEFINE_EMPTY_CANONICALIZER(SubOp)
-DEFINE_EMPTY_CANONICALIZER(MulOp)
-DEFINE_EMPTY_CANONICALIZER(DivOp)
-DEFINE_EMPTY_CANONICALIZER(MaxOp)
-DEFINE_EMPTY_CANONICALIZER(MinOp)
-DEFINE_EMPTY_CANONICALIZER(PowOp)
-DEFINE_EMPTY_CANONICALIZER(ModOp)
-DEFINE_EMPTY_CANONICALIZER(AndOp)
-DEFINE_EMPTY_CANONICALIZER(OrOp)
-DEFINE_EMPTY_CANONICALIZER(XorOp)
-
-// Other Ops
-DEFINE_EMPTY_CANONICALIZER(MatmulOp)
-DEFINE_EMPTY_CANONICALIZER(ReduceOp)
-DEFINE_EMPTY_CANONICALIZER(CompareOp)
-DEFINE_EMPTY_CANONICALIZER(SigmoidOp)
-DEFINE_EMPTY_CANONICALIZER(GeluOp)
-DEFINE_EMPTY_CANONICALIZER(SoftmaxOp)
-DEFINE_EMPTY_CANONICALIZER(TransposeOp)
-DEFINE_EMPTY_CANONICALIZER(MaeOp)
-DEFINE_EMPTY_CANONICALIZER(MseOp)
-DEFINE_EMPTY_CANONICALIZER(CceOp)
-DEFINE_EMPTY_CANONICALIZER(BceOp)
-DEFINE_EMPTY_CANONICALIZER(ArgmaxOp)
-DEFINE_EMPTY_CANONICALIZER(ArgMinOp)

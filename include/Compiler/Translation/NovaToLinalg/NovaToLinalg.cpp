@@ -186,17 +186,27 @@ struct NovaTransposeOpLowering : public OpConversionPattern<nova::TransposeOp> {
     auto resultShape = resultType.getShape();
     int64_t rank = resultShape.size();
 
-    int64_t axes1 = op.getAxes1();
-    int64_t axes2 = op.getAxes2();
+    int64_t axes1 = rank - 1;
+    int64_t axes2 = rank - 2;
 
-    if (axes1 < 0) axes1 += rank;
-    if (axes2 < 0) axes2 += rank;
+    if (auto attr = op->getAttrOfType<IntegerAttr>("axes1"))
+      axes1 = attr.getInt();
+    if (auto attr = op->getAttrOfType<IntegerAttr>("axes2"))
+      axes2 = attr.getInt();
+
+    if (axes1 < 0)
+      axes1 += rank;
+    if (axes2 < 0)
+      axes2 += rank;
 
     llvm::SmallVector<int64_t> perms;
     for (int64_t i = 0; i < rank; i++) {
-      if (i == axes1) perms.push_back(axes2);
-      else if (i == axes2) perms.push_back(axes1);
-      else perms.push_back(i);
+      if (i == axes1)
+        perms.push_back(axes2);
+      else if (i == axes2)
+        perms.push_back(axes1);
+      else
+        perms.push_back(i);
     }
 
     Location loc = op.getLoc();
@@ -206,7 +216,7 @@ struct NovaTransposeOpLowering : public OpConversionPattern<nova::TransposeOp> {
 
     auto transposeOp = rewriter.replaceOpWithNewOp<linalg::TransposeOp>(
         op, adaptor.getInput(), permutedInit, perms);
-    
+
     // Explicitly set the result type to ensure encoding is preserved
     transposeOp->getResult(0).setType(resultType);
 
