@@ -1391,7 +1391,11 @@ LogicalResult ReduceOp::verify() {
   if (auto dimensionAttr = getDimensionAttr()) {
     llvm::SmallVector<int64_t> DimensionVec;
     for (auto dimension : dimensionAttr.getAsValueRange<IntegerAttr>()) {
-      int64_t dimensionVal = dimension.getZExtValue();
+      int64_t dimensionVal = dimension.getSExtValue();
+      // Handle negative indexing
+      if (dimensionVal < 0) {
+        dimensionVal += inputRank;
+      }
       if (dimensionVal < 0 || dimensionVal >= inputRank) {
         return emitOpError("axis ")
                << dimensionVal << " is out of range [0, " << inputRank << ")";
@@ -1430,7 +1434,10 @@ LogicalResult ReduceOp::verify() {
   if (auto dimensionAttr = getDimensionAttr()) {
     llvm::SmallSet<int64_t, 4> reduceDimension;
     for (auto axis : dimensionAttr.getAsValueRange<IntegerAttr>()) {
-      reduceDimension.insert(axis.getZExtValue());
+      int64_t axisVal = axis.getSExtValue();
+      if (axisVal < 0)
+        axisVal += inputRank;
+      reduceDimension.insert(axisVal);
     }
 
     for (int64_t i = 0; i < inputRank; ++i) {
@@ -1531,6 +1538,28 @@ void SoftmaxOp::build(OpBuilder &builder, OperationState &state,
 }
 // losses
 LogicalResult
+SceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
+                        ValueRange operands, DictionaryAttr attributes,
+                        OpaqueProperties properties, RegionRange regions,
+                        llvm::SmallVectorImpl<Type> &inferredReturnTypes) {
+  auto logitsType = dyn_cast<RankedTensorType>(operands[0].getType());
+  if (!logitsType)
+    return failure();
+
+  // Always return f32 scalar for sparse cross entropy loss
+  Type outElemTy = Float32Type::get(context);
+
+  auto outType = RankedTensorType::get(
+      {}, outElemTy,
+      getBinaryResultEncoding(
+          logitsType.getEncoding(),
+          llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
+          context));
+
+  inferredReturnTypes.push_back(outType);
+  return success();
+}
+LogicalResult
 MaeOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
                         ValueRange operands, DictionaryAttr attributes,
                         OpaqueProperties properties, RegionRange regions,
@@ -1554,7 +1583,7 @@ MaeOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      {1}, outElemTy,
+      {}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1587,7 +1616,7 @@ MseOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      {1}, outElemTy,
+      {}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1620,7 +1649,7 @@ CceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      {1}, outElemTy,
+      {}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1653,7 +1682,7 @@ BceOp::inferReturnTypes(MLIRContext *context, std::optional<Location> loc,
     return failure();
   }
   auto outType = RankedTensorType::get(
-      {1}, outElemTy,
+      {}, outElemTy,
       getBinaryResultEncoding(
           inputType.getEncoding(),
           llvm::cast<RankedTensorType>(operands[1].getType()).getEncoding(),
@@ -1746,186 +1775,62 @@ struct SimplifyRedundantToDevice : public OpRewritePattern<ToDeviceOp> {
     return failure();
   }
 };
-
-static Value ensureDevice(OpBuilder &builder, Value value, StringRef device) {
-  auto type = cast<RankedTensorType>(value.getType());
-  auto encoding = dyn_cast_or_null<NovaDeviceAttr>(type.getEncoding());
-  if (encoding) {
-    if (encoding.getValue() == device)
-      return value;
-  }
-
-  // Look for an existing to_device op that already transfers this value to the
-  // target device
-  for (auto &use : value.getUses()) {
-    if (auto toDevice = dyn_cast<ToDeviceOp>(use.getOwner())) {
-      if (toDevice.getInput() == value) {
-        auto resultType = cast<RankedTensorType>(toDevice.getType());
-        auto resultEncoding =
-            dyn_cast_or_null<NovaDeviceAttr>(resultType.getEncoding());
-        if (resultEncoding && resultEncoding.getValue() == device)
-          return toDevice.getResult();
-      }
-    }
-  }
-
-  auto targetType = RankedTensorType::get(
-      type.getShape(), type.getElementType(),
-      NovaDeviceAttr::get(builder.getContext(), builder.getStringAttr(device)));
-  return builder.create<ToDeviceOp>(value.getLoc(), targetType, value);
-}
-
-struct EnsureCpuReturn : public OpRewritePattern<func::ReturnOp> {
-  using OpRewritePattern<func::ReturnOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(func::ReturnOp op,
-                                PatternRewriter &rewriter) const override {
-    auto func = op->getParentOfType<func::FuncOp>();
-    if (!func)
-      return failure();
-
-    bool changed = false;
-    SmallVector<Value> newOperands;
-    for (unsigned i = 0; i < op.getNumOperands(); ++i) {
-      Value operand = op.getOperand(i);
-      auto expectedType = func.getResultTypes()[i];
-      if (auto expectedTensor = dyn_cast<RankedTensorType>(expectedType)) {
-        if (auto expectedEncoding = dyn_cast_or_null<NovaDeviceAttr>(
-                expectedTensor.getEncoding())) {
-          Value targetValue =
-              ensureDevice(rewriter, operand, expectedEncoding.getValue());
-          if (targetValue != operand) {
-            changed = true;
-          }
-          newOperands.push_back(targetValue);
-          continue;
-        }
-      }
-      newOperands.push_back(operand);
-    }
-
-    if (!changed)
-      return failure();
-
-    rewriter.modifyOpInPlace(op, [&]() { op->setOperands(newOperands); });
-    return success();
-  }
-};
-
-void ToDeviceOp::getCanonicalizationPatterns(RewritePatternSet &results,
-                                             MLIRContext *context) {
-  results.add<SimplifyRedundantToDevice>(context);
-}
-
-template <typename OpTy>
-struct EnsureGpuInputs : public OpRewritePattern<OpTy> {
-  using OpRewritePattern<OpTy>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(OpTy op,
-                                PatternRewriter &rewriter) const override {
-    // Skip if this is already a to_device op to avoid infinite recursion
-    if (isa<ToDeviceOp>(op.getOperation()))
-      return failure();
-
-    bool changed = false;
-    SmallVector<Value> newOperands;
-    for (Value operand : op->getOperands()) {
-      if (auto tensorType = dyn_cast<RankedTensorType>(operand.getType())) {
-        Value gpuValue = ensureDevice(rewriter, operand, "1");
-        if (gpuValue != operand) {
-          changed = true;
-        }
-        newOperands.push_back(gpuValue);
-      } else {
-        newOperands.push_back(operand);
-      }
-    }
-
-    if (!changed)
-      return failure();
-
-    rewriter.modifyOpInPlace(op, [&]() {
-      op->setOperands(newOperands);
-      // Update result types to be on device "1"
-      for (auto result : op->getResults()) {
-        if (auto type = dyn_cast<RankedTensorType>(result.getType())) {
-          auto newType = RankedTensorType::get(
-              type.getShape(), type.getElementType(),
-              NovaDeviceAttr::get(rewriter.getContext(),
-                                  rewriter.getStringAttr("1")));
-          result.setType(newType);
-        }
-      }
-    });
-    return success();
-  }
-};
-
-#define DEFINE_GPU_INPUT_CANONICALIZER(OpTy)                                   \
+#define DEFINE_EMPTY_CANONICALIZER(OpTy)                                       \
   void OpTy::getCanonicalizationPatterns(RewritePatternSet &results,           \
-                                         MLIRContext *context) {               \
-    results.add<EnsureGpuInputs<OpTy>, EnsureCpuReturn>(context);              \
-  }
+                                         MLIRContext *context) {}
 
 // Unary Ops
-DEFINE_GPU_INPUT_CANONICALIZER(ConstantOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AbsOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AcosOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AsinOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AtanOp)
-DEFINE_GPU_INPUT_CANONICALIZER(CosOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ExpOp)
-DEFINE_GPU_INPUT_CANONICALIZER(Exp2Op)
-DEFINE_GPU_INPUT_CANONICALIZER(LogOp)
-DEFINE_GPU_INPUT_CANONICALIZER(Log2Op)
-DEFINE_GPU_INPUT_CANONICALIZER(Log10Op)
-DEFINE_GPU_INPUT_CANONICALIZER(NegOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SignOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SinOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SinhOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SqrtOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SquareOp)
-DEFINE_GPU_INPUT_CANONICALIZER(TanOp)
-DEFINE_GPU_INPUT_CANONICALIZER(TanhOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ReluOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ReciprocalOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AsinhOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AcoshOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AtanhOp)
-DEFINE_GPU_INPUT_CANONICALIZER(CoshOp)
-DEFINE_GPU_INPUT_CANONICALIZER(NotOp)
+DEFINE_EMPTY_CANONICALIZER(ConstantOp)
+DEFINE_EMPTY_CANONICALIZER(AbsOp)
+DEFINE_EMPTY_CANONICALIZER(AcosOp)
+DEFINE_EMPTY_CANONICALIZER(AsinOp)
+DEFINE_EMPTY_CANONICALIZER(AtanOp)
+DEFINE_EMPTY_CANONICALIZER(CosOp)
+DEFINE_EMPTY_CANONICALIZER(ExpOp)
+DEFINE_EMPTY_CANONICALIZER(Exp2Op)
+DEFINE_EMPTY_CANONICALIZER(LogOp)
+DEFINE_EMPTY_CANONICALIZER(Log2Op)
+DEFINE_EMPTY_CANONICALIZER(Log10Op)
+DEFINE_EMPTY_CANONICALIZER(NegOp)
+DEFINE_EMPTY_CANONICALIZER(SignOp)
+DEFINE_EMPTY_CANONICALIZER(SinOp)
+DEFINE_EMPTY_CANONICALIZER(SinhOp)
+DEFINE_EMPTY_CANONICALIZER(SqrtOp)
+DEFINE_EMPTY_CANONICALIZER(SquareOp)
+DEFINE_EMPTY_CANONICALIZER(TanOp)
+DEFINE_EMPTY_CANONICALIZER(TanhOp)
+DEFINE_EMPTY_CANONICALIZER(ReluOp)
+DEFINE_EMPTY_CANONICALIZER(ReciprocalOp)
+DEFINE_EMPTY_CANONICALIZER(AsinhOp)
+DEFINE_EMPTY_CANONICALIZER(AcoshOp)
+DEFINE_EMPTY_CANONICALIZER(AtanhOp)
+DEFINE_EMPTY_CANONICALIZER(CoshOp)
+DEFINE_EMPTY_CANONICALIZER(NotOp)
 
 // Binary Ops
-DEFINE_GPU_INPUT_CANONICALIZER(AddOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SubOp)
-DEFINE_GPU_INPUT_CANONICALIZER(MulOp)
-DEFINE_GPU_INPUT_CANONICALIZER(DivOp)
-DEFINE_GPU_INPUT_CANONICALIZER(MaxOp)
-DEFINE_GPU_INPUT_CANONICALIZER(MinOp)
-DEFINE_GPU_INPUT_CANONICALIZER(PowOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ModOp)
-DEFINE_GPU_INPUT_CANONICALIZER(AndOp)
-DEFINE_GPU_INPUT_CANONICALIZER(OrOp)
-DEFINE_GPU_INPUT_CANONICALIZER(XorOp)
+DEFINE_EMPTY_CANONICALIZER(AddOp)
+DEFINE_EMPTY_CANONICALIZER(SubOp)
+DEFINE_EMPTY_CANONICALIZER(MulOp)
+DEFINE_EMPTY_CANONICALIZER(DivOp)
+DEFINE_EMPTY_CANONICALIZER(MaxOp)
+DEFINE_EMPTY_CANONICALIZER(MinOp)
+DEFINE_EMPTY_CANONICALIZER(PowOp)
+DEFINE_EMPTY_CANONICALIZER(ModOp)
+DEFINE_EMPTY_CANONICALIZER(AndOp)
+DEFINE_EMPTY_CANONICALIZER(OrOp)
+DEFINE_EMPTY_CANONICALIZER(XorOp)
 
 // Other Ops
-DEFINE_GPU_INPUT_CANONICALIZER(MatmulOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ReduceOp)
-DEFINE_GPU_INPUT_CANONICALIZER(CompareOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SigmoidOp)
-DEFINE_GPU_INPUT_CANONICALIZER(GeluOp)
-DEFINE_GPU_INPUT_CANONICALIZER(SoftmaxOp)
-DEFINE_GPU_INPUT_CANONICALIZER(TransposeOp)
-DEFINE_GPU_INPUT_CANONICALIZER(MaeOp)
-DEFINE_GPU_INPUT_CANONICALIZER(MseOp)
-DEFINE_GPU_INPUT_CANONICALIZER(CceOp)
-DEFINE_GPU_INPUT_CANONICALIZER(BceOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ArgmaxOp)
-DEFINE_GPU_INPUT_CANONICALIZER(ArgMinOp)
-
-// We need a way to register EnsureCpuReturn.
-// Since func.return is not in Nova dialect, we can't add it to its
-// getCanonicalizationPatterns. However, we can add it to any of our ops'
-// getCanonicalizationPatterns if we want it to be picked up by the
-// canonicalizer. Or better, we can add it to the dialect's initialization if it
-// supports it. For now, let's add it to ToDeviceOp's patterns as well.
+DEFINE_EMPTY_CANONICALIZER(MatmulOp)
+DEFINE_EMPTY_CANONICALIZER(ReduceOp)
+DEFINE_EMPTY_CANONICALIZER(CompareOp)
+DEFINE_EMPTY_CANONICALIZER(SigmoidOp)
+DEFINE_EMPTY_CANONICALIZER(GeluOp)
+DEFINE_EMPTY_CANONICALIZER(SoftmaxOp)
+DEFINE_EMPTY_CANONICALIZER(TransposeOp)
+DEFINE_EMPTY_CANONICALIZER(MaeOp)
+DEFINE_EMPTY_CANONICALIZER(MseOp)
+DEFINE_EMPTY_CANONICALIZER(CceOp)
+DEFINE_EMPTY_CANONICALIZER(BceOp)
+DEFINE_EMPTY_CANONICALIZER(ArgmaxOp)
+DEFINE_EMPTY_CANONICALIZER(ArgMinOp)

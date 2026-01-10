@@ -146,8 +146,6 @@ public:
   LogicalResult
   matchAndRewrite(NovaTopTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::errs() << "NovaToTosaLoweringTemplater matching "
-                 << op->getName().getStringRef() << "\n";
     ValueRange operands = adaptor.getOperands();
     // checking operand is empty or not
     if (operands.empty())

@@ -94,7 +94,6 @@ def Nova_CompareOp:Op<Nova_Dialect,"compare",[Pure,InferTypeOpInterface,NoComple
 
 }
 def Nova_ToDeviceOp : Op<Nova_Dialect, "to_device", [Pure]> {
-  let hasCanonicalizer = 1;
   let hasFolder = 1;
   let summary = "Explicitly copy a tensor to a different device";
   let description = [{
@@ -1032,6 +1031,25 @@ def Nova_Rndm2DOp:Op<Nova_Dialect,"rndm2d",[Pure]>{
     $min `,` $max attr-dict `:` type($result) 
   }];
 }
+def Nova_SceOp :Op<Nova_Dialect,"sce",[Pure,DeclareOpInterfaceMethods<InferTypeOpInterface>]>{
+  let summary = "Sparse Cross Entropy loss operation";
+  let description = [{
+    Computes the sparse cross entropy loss between logits and target indices.
+    This is commonly used for multi-class classification where targets are class indices.
+    
+    Example:
+      %loss = nova.sce %logits, %targets : tensor<4x10xf32>, tensor<4xi32>
+  }];
+  
+  let arguments = (ins Nova_Tensor:$logits, Nova_Tensor:$targets);
+  let results = (outs Nova_Tensor:$result);
+
+  let assemblyFormat = [{
+    $logits `,` $targets attr-dict `:` type($logits) `,` type($targets) 
+  }];
+}
+
+
 /*
 def Nova_ConvolutionOp : Op<Nova_Dialect, "convolution", [Pure, DeclareOpInterfaceMethods<InferTypeOpInterface>]> {
   let summary = "Convolution operation with padding and stride";

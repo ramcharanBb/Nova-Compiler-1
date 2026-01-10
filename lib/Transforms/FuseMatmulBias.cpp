@@ -154,7 +154,7 @@ struct FuseMatmulBiasPattern : public OpRewritePattern<GenericOp> {
 
     Value output = transformedBias;
 
-    if (matmulType.getElementType() != biasType.getElementType()) {
+    if (lhstensor.getElementType() != rhstensor.getElementType()) {
         // We need to cast the bias to the matmul type.
         // We use a linalg.generic op to perform the cast because arith.extf on tensors
         // is not supported by one-shot-bufferize.
